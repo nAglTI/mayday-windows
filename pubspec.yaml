@@ -1,0 +1,37 @@
+name: mayday_windows
+description: Flutter Windows shell for mayday client runtime.
+publish_to: 'none'
+
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.4.0 <4.0.0'
+
+dependencies:
+  ffi: ^2.2.0
+  flutter:
+    sdk: flutter
+  path: ^1.9.0
+  win32: ^6.1.0
+  yaml: ^3.1.2
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true
+  fonts:
+    - family: Inter
+      fonts:
+        - asset: assets/fonts/inter_variable.ttf
+    - family: JetBrainsMono
+      fonts:
+        - asset: assets/fonts/jetbrains_mono_regular.ttf
+        - asset: assets/fonts/jetbrains_mono_medium.ttf
+          weight: 500
+    - family: InstrumentSerif
+      fonts:
+        - asset: assets/fonts/instrument_serif_regular.ttf
+          weight: 500

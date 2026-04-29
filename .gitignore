@@ -1,0 +1,87 @@
+# Dart and Flutter
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+.pub-cache/
+.pub/
+build/
+coverage/
+app.*.symbols
+app.*.map.json
+
+# Local Flutter SDK and generated Windows engine artifacts
+/flutter/
+/windows/flutter/ephemeral/
+
+# Private runtime and release artifacts
+/build-win/
+/build-runtime/
+/runtime/
+/dist/
+/installer/dist/
+*.exe
+*.dll
+*.sys
+*.pdb
+*.lib
+*.exp
+*.msi
+*.msix
+*.zip
+*.7z
+
+# Local app data, imported profiles, and config templates
+/client.yaml
+/client.json
+/config/
+/profiles/
+/logs/
+/assets/config/
+*.local.yaml
+*.local.yml
+*.local.json
+*.template.yaml
+*.template.yml
+*.template.json
+
+# Secrets, certificates, and signing material
+.env
+.env.*
+*.env
+*.pfx
+*.p12
+*.pem
+*.key
+*.crt
+*.cer
+*.jks
+*.keystore
+/certs/
+/secrets/
+/signing/
+/installer-signing/
+
+# Internal notes and architecture drafts
+/docs/
+*.md
+!README.md
+!README.ru.md
+!LICENSE.md
+!CHANGELOG.md
+!/release-notes/
+!/release-notes/*.md
+/release-notes/RULES.md
+
+# IDE, OS, and transient files
+.idea/
+.vscode/
+*.iml
+*.log
+*.tmp
+*.temp
+*.bak
+*.swp
+Thumbs.db
+Desktop.ini
+.DS_Store
