@@ -51,11 +51,13 @@ Future<void> runChecked(
   String executable,
   List<String> arguments, {
   required String workingDirectory,
+  Map<String, String>? environment,
 }) async {
   final process = await Process.start(
     executable,
     arguments,
     workingDirectory: workingDirectory,
+    environment: environment,
     mode: ProcessStartMode.inheritStdio,
   );
   final exitCode = await process.exitCode;

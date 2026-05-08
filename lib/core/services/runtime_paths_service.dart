@@ -7,15 +7,18 @@ import '../models/runtime_paths.dart';
 class RuntimePathsService {
   const RuntimePathsService();
 
-  static final String _runtimeExecutableName =
-      '${String.fromCharCodes(const [118, 112, 110])}client.exe';
+  static const String _buildVariant = String.fromEnvironment(
+    'MAYDAY_BUILD_VARIANT',
+    defaultValue: 'local',
+  );
+  static const String _runtimeExecutableName = 'mdhelper.exe';
 
   Future<RuntimePaths> getPaths() async {
     final installRoot = File(Platform.resolvedExecutable).parent.path;
     final runtimeDir = p.join(installRoot, 'runtime');
     final localAppData =
         Platform.environment['LOCALAPPDATA'] ?? Directory.systemTemp.path;
-    final mutableRoot = p.join(localAppData, 'Mayday');
+    final mutableRoot = p.join(localAppData, _mutableRootName);
     final configDir = p.join(mutableRoot, 'config');
 
     return RuntimePaths(
@@ -26,6 +29,14 @@ class RuntimePathsService {
       configDir: configDir,
       configPath: p.join(configDir, 'client.yaml.dpapi'),
     );
+  }
+
+  String get _mutableRootName {
+    final normalized = _buildVariant.trim().toLowerCase();
+    if (normalized.isEmpty || normalized == 'prod') {
+      return 'Mayday';
+    }
+    return 'Mayday-$normalized';
   }
 
   Future<void> ensureMutableDirectories(RuntimePaths paths) async {

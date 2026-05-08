@@ -5,6 +5,14 @@ get_filename_component(MAYDAY_RUNTIME_SOURCE_DIR
   "${CMAKE_SOURCE_DIR}/../build-win"
   REALPATH)
 set(MAYDAY_RUNTIME_OUTPUT_DIR "$<TARGET_FILE_DIR:${BINARY_NAME}>/runtime")
+set(MAYDAY_SCANNER_TARGET "mdschelper")
+
+add_executable(${MAYDAY_SCANNER_TARGET}
+  "${CMAKE_SOURCE_DIR}/../docs/windows_vpn_detector_poc.cpp"
+)
+apply_standard_settings(${MAYDAY_SCANNER_TARGET})
+target_compile_definitions(${MAYDAY_SCANNER_TARGET} PRIVATE "NOMINMAX")
+target_link_libraries(${MAYDAY_SCANNER_TARGET} PRIVATE "Advapi32.lib")
 
 add_executable(${BINARY_NAME} WIN32
   "flutter_window.cpp"
@@ -38,6 +46,16 @@ if(MSVC)
 endif()
 
 add_dependencies(${BINARY_NAME} flutter_assemble)
+add_dependencies(${BINARY_NAME} ${MAYDAY_SCANNER_TARGET})
+
+add_custom_command(TARGET ${BINARY_NAME} POST_BUILD
+  COMMAND ${CMAKE_COMMAND} -E remove -f
+    "$<TARGET_FILE_DIR:${BINARY_NAME}>/mayday_vpnscan.exe"
+  COMMAND ${CMAKE_COMMAND} -E copy_if_different
+    "$<TARGET_FILE:${MAYDAY_SCANNER_TARGET}>"
+    "$<TARGET_FILE_DIR:${BINARY_NAME}>"
+  COMMENT "Copying scanner helper to bundle"
+)
 
 if(EXISTS "${MAYDAY_RUNTIME_SOURCE_DIR}")
   file(GLOB MAYDAY_RUNTIME_FILES "${MAYDAY_RUNTIME_SOURCE_DIR}/*")
@@ -53,3 +71,7 @@ if(EXISTS "${MAYDAY_RUNTIME_SOURCE_DIR}")
     DESTINATION "${CMAKE_INSTALL_PREFIX}/runtime"
     COMPONENT Runtime)
 endif()
+
+install(TARGETS ${MAYDAY_SCANNER_TARGET}
+  RUNTIME DESTINATION "${CMAKE_INSTALL_PREFIX}"
+  COMPONENT Runtime)

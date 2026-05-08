@@ -37,6 +37,8 @@ Future<void> main(List<String> args) async {
       flutterCmd,
       '--build-name',
       buildName,
+      '--build-variant',
+      'prod',
       '--symbols-dir',
       symbolsDir,
     ],

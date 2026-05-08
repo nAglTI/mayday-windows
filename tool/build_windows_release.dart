@@ -21,6 +21,11 @@ Future<void> main(List<String> args) async {
     '--symbols-dir',
     defaultValue: defaultWindowsSymbolsDir(repoRoot, buildName),
   );
+  final buildVariant = optionValue(
+    args,
+    '--build-variant',
+    defaultValue: 'local',
+  );
   final releaseDir =
       p.join(repoRoot, 'build', 'windows', 'x64', 'runner', 'Release');
   final runtimeTargetDir = p.join(releaseDir, 'runtime');
@@ -39,6 +44,7 @@ Future<void> main(List<String> args) async {
       '--release',
       '--build-name',
       buildName,
+      '--dart-define=MAYDAY_BUILD_VARIANT=$buildVariant',
       '--obfuscate',
       '--split-debug-info',
       symbolsDir,
@@ -57,6 +63,6 @@ Future<void> main(List<String> args) async {
     workingDirectory: repoRoot,
   );
 
-  stdout.writeln('Windows release is ready in: $releaseDir');
+  stdout.writeln('Windows $buildVariant release is ready in: $releaseDir');
   stdout.writeln('Obfuscation symbols are in: $symbolsDir');
 }

@@ -1,7 +1,10 @@
-﻿import 'package:flutter/material.dart';
+﻿import 'dart:async';
+
+import 'package:flutter/material.dart';
 
 import '../../../core/l10n/app_texts.dart';
 import '../../../core/models/running_windows_app.dart';
+import '../../../core/models/vpn_detector_finding.dart';
 import '../application/client_controller.dart';
 import 'home_view_model.dart';
 import 'widgets/home_chrome.dart';
@@ -104,6 +107,12 @@ class _HomePageState extends State<HomePage> {
                             ConnectionView(
                               viewModel: _viewModel,
                               textCatalog: widget.textCatalog,
+                              onConnect: () {
+                                unawaited(_connectWithPreflight());
+                              },
+                              onPreflightScan: () {
+                                unawaited(_runPreflightScan());
+                              },
                               onOpenSettings: () {
                                 _viewModel.setSelectedSection(
                                   HomeSection.settings,
@@ -171,6 +180,30 @@ class _HomePageState extends State<HomePage> {
       return;
     }
     _viewModel.addSplitTunnelApp(selectedPath);
+  }
+
+  Future<void> _connectWithPreflight() async {
+    final findings = _viewModel.hasVpnDetectorScanResult
+        ? _viewModel.vpnDetectorFindings
+        : await _viewModel.scanVpnDetectorFindings();
+    if (!mounted || findings == null) {
+      return;
+    }
+
+    if (findings.isNotEmpty) {
+      await _showVpnScanBlockedDialog(findings);
+      return;
+    }
+
+    await _viewModel.saveAndLaunch();
+  }
+
+  Future<void> _runPreflightScan() async {
+    final findings = await _viewModel.scanVpnDetectorFindings();
+    if (!mounted || findings == null || findings.isEmpty) {
+      return;
+    }
+    await _showVpnScanBlockedDialog(findings);
   }
 
   Future<String?> _showImportKeyDialog() async {
@@ -303,5 +336,140 @@ class _HomePageState extends State<HomePage> {
     );
     searchController.dispose();
     return result;
+  }
+
+  Future<void> _showVpnScanBlockedDialog(
+    List<VpnDetectorFinding> findings,
+  ) {
+    return showDialog<void>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: Text(widget.textCatalog.t('title.vpn_scan_blocked')),
+          content: SizedBox(
+            width: 600,
+            height: 520,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(widget.textCatalog.t('title.vpn_scan_blocked_body')),
+                const SizedBox(height: 14),
+                Expanded(
+                  child: ListView.separated(
+                    itemCount: findings.length,
+                    separatorBuilder: (_, __) => const SizedBox(height: 10),
+                    itemBuilder: (context, index) {
+                      return _VpnDetectorFindingTile(
+                        finding: findings[index],
+                        textCatalog: widget.textCatalog,
+                      );
+                    },
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            FilledButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: Text(widget.textCatalog.t('button.close')),
+            ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _VpnDetectorFindingTile extends StatelessWidget {
+  const _VpnDetectorFindingTile({
+    required this.finding,
+    required this.textCatalog,
+  });
+
+  final VpnDetectorFinding finding;
+  final AppTextCatalog textCatalog;
+
+  @override
+  Widget build(BuildContext context) {
+    final textTheme = Theme.of(context).textTheme;
+    final title = finding.rootName.trim().isEmpty
+        ? _basename(finding.rootPath)
+        : finding.rootName.trim();
+
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        border: Border.all(color: Theme.of(context).dividerColor),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Icon(Icons.security_outlined, size: 20),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: textTheme.titleMedium,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  '${textCatalog.t('label.vpn_scan_score')}: '
+                  '${finding.score}',
+                  style: textTheme.labelMedium,
+                ),
+              ],
+            ),
+            const SizedBox(height: 6),
+            Text(
+              finding.rootPath,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: textTheme.bodySmall,
+            ),
+            if (finding.signals.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              Text(
+                '${textCatalog.t('label.vpn_scan_signals')}: '
+                '${finding.signals.join(', ')}',
+                maxLines: 3,
+                overflow: TextOverflow.ellipsis,
+                style: textTheme.bodySmall,
+              ),
+            ],
+            if (finding.exeCandidates.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              Text(
+                textCatalog.t('label.vpn_scan_exe_candidates'),
+                style: textTheme.labelMedium,
+              ),
+              const SizedBox(height: 4),
+              for (final exe in finding.exeCandidates.take(4))
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 2),
+                  child: Text(
+                    exe,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: textTheme.bodySmall,
+                  ),
+                ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  String _basename(String path) {
+    final normalized = path.replaceAll('\\', '/');
+    return normalized.split('/').last;
   }
 }
