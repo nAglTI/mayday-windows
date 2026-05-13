@@ -79,7 +79,7 @@ class ConnectionView extends StatelessWidget {
               const Hairline(),
               StatRow(
                 label: textCatalog.t('label.preflight_scan'),
-                value: viewModel.vpnDetectorScanSummary,
+                value: viewModel.badAppScanSummary,
                 accent: _preflightScanColor,
               ),
             ],
@@ -136,7 +136,7 @@ class ConnectionView extends StatelessWidget {
   }
 
   Color? get _preflightScanColor {
-    final findings = viewModel.vpnDetectorFindings;
+    final findings = viewModel.badAppFindings;
     if (findings == null) {
       return MaydayColors.muted;
     }

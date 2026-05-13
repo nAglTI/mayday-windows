@@ -2,6 +2,100 @@ import 'dart:io';
 
 import 'package:path/path.dart' as p;
 
+class AppBuildVersion {
+  const AppBuildVersion({
+    required this.buildName,
+    required this.buildNumber,
+  });
+
+  factory AppBuildVersion.parse(String value) {
+    final trimmed = value.trim();
+    if (trimmed.isEmpty) {
+      return fallback;
+    }
+
+    final parts = trimmed.split('+');
+    return AppBuildVersion(
+      buildName: _normalizeBuildName(parts.first),
+      buildNumber: parts.length > 1 ? _normalizeBuildNumber(parts[1]) : '0',
+    );
+  }
+
+  factory AppBuildVersion.fromParts({
+    required String buildName,
+    required String buildNumber,
+  }) {
+    final parsedName = AppBuildVersion.parse(buildName);
+    final parsedNumber = buildNumber.trim().isEmpty
+        ? parsedName.buildNumber
+        : _normalizeBuildNumber(buildNumber);
+    return AppBuildVersion(
+      buildName: parsedName.buildName,
+      buildNumber: parsedNumber,
+    );
+  }
+
+  static const fallback = AppBuildVersion(
+    buildName: '0.1.0',
+    buildNumber: '0',
+  );
+
+  final String buildName;
+  final String buildNumber;
+
+  String get displayVersion {
+    return buildNumber == '0' ? buildName : '$buildName+$buildNumber';
+  }
+
+  String get windowsVersion {
+    final components = buildName.split('.').map(int.parse).toList();
+    while (components.length < 3) {
+      components.add(0);
+    }
+    return '${components[0]}.${components[1]}.${components[2]}.$buildNumber';
+  }
+
+  static String _normalizeBuildName(String value) {
+    final trimmed = value.trim();
+    final pattern = RegExp(r'^\d+(?:\.\d+){0,2}$');
+    if (!pattern.hasMatch(trimmed)) {
+      throw FormatException(
+        'App version must be numeric x.y.z, got "$value".',
+      );
+    }
+
+    final parts = trimmed.split('.');
+    for (final part in parts) {
+      _parseWindowsVersionComponent(part, 'App version component');
+    }
+    while (parts.length < 3) {
+      parts.add('0');
+    }
+    return parts.join('.');
+  }
+
+  static String _normalizeBuildNumber(String value) {
+    final trimmed = value.trim();
+    if (!RegExp(r'^\d+$').hasMatch(trimmed)) {
+      throw FormatException(
+        'App build number must be numeric, got "$value".',
+      );
+    }
+    return '${_parseWindowsVersionComponent(trimmed, 'App build number')}';
+  }
+
+  static int _parseWindowsVersionComponent(String value, String label) {
+    final parsed = int.parse(value);
+    if (parsed > 65535) {
+      throw FormatException(
+        '$label must be between 0 and 65535 for Windows resources, '
+        'got "$value".',
+      );
+    }
+    return parsed;
+  }
+}
+
 String resolveRepoRoot() {
   final scriptPath = p.fromUri(Platform.script);
   return p.dirname(p.dirname(scriptPath));
@@ -13,14 +107,25 @@ String defaultFlutterCommand(String repoRoot) {
 }
 
 String defaultBuildName(String repoRoot) {
+  return defaultBuildVersion(repoRoot).buildName;
+}
+
+String defaultBuildNumber(String repoRoot) {
+  return defaultBuildVersion(repoRoot).buildNumber;
+}
+
+AppBuildVersion defaultBuildVersion(String repoRoot) {
   final pubspec = File(p.join(repoRoot, 'pubspec.yaml'));
   if (!pubspec.existsSync()) {
-    return '0.1.0';
+    return AppBuildVersion.fallback;
   }
 
-  final versionPattern = RegExp(r'^version:\s*([^\s+]+)', multiLine: true);
+  final versionPattern = RegExp(r'^version:\s*([^\s#]+)', multiLine: true);
   final match = versionPattern.firstMatch(pubspec.readAsStringSync());
-  return match?.group(1) ?? '0.1.0';
+  final value = match?.group(1);
+  return value == null
+      ? AppBuildVersion.fallback
+      : AppBuildVersion.parse(value);
 }
 
 String defaultWindowsSymbolsDir(String repoRoot, String buildName) {

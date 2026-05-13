@@ -2,9 +2,10 @@
 
 import 'package:flutter/material.dart';
 
+import '../../../app/mayday_theme.dart';
 import '../../../core/l10n/app_texts.dart';
 import '../../../core/models/running_windows_app.dart';
-import '../../../core/models/vpn_detector_finding.dart';
+import '../../../core/models/bad_app_finding.dart';
 import '../application/client_controller.dart';
 import 'home_view_model.dart';
 import 'widgets/home_chrome.dart';
@@ -183,15 +184,15 @@ class _HomePageState extends State<HomePage> {
   }
 
   Future<void> _connectWithPreflight() async {
-    final findings = _viewModel.hasVpnDetectorScanResult
-        ? _viewModel.vpnDetectorFindings
-        : await _viewModel.scanVpnDetectorFindings();
+    final findings = _viewModel.hasBadAppScanResult
+        ? _viewModel.badAppFindings
+        : await _viewModel.scanBadAppFindings();
     if (!mounted || findings == null) {
       return;
     }
 
     if (findings.isNotEmpty) {
-      await _showVpnScanBlockedDialog(findings);
+      await _showBadAppScanBlockedDialog(findings);
       return;
     }
 
@@ -199,11 +200,11 @@ class _HomePageState extends State<HomePage> {
   }
 
   Future<void> _runPreflightScan() async {
-    final findings = await _viewModel.scanVpnDetectorFindings();
+    final findings = await _viewModel.scanBadAppFindings();
     if (!mounted || findings == null || findings.isEmpty) {
       return;
     }
-    await _showVpnScanBlockedDialog(findings);
+    await _showBadAppScanBlockedDialog(findings);
   }
 
   Future<String?> _showImportKeyDialog() async {
@@ -338,8 +339,8 @@ class _HomePageState extends State<HomePage> {
     return result;
   }
 
-  Future<void> _showVpnScanBlockedDialog(
-    List<VpnDetectorFinding> findings,
+  Future<void> _showBadAppScanBlockedDialog(
+    List<BadAppFinding> findings,
   ) {
     return showDialog<void>(
       context: context,
@@ -359,7 +360,7 @@ class _HomePageState extends State<HomePage> {
                     itemCount: findings.length,
                     separatorBuilder: (_, __) => const SizedBox(height: 10),
                     itemBuilder: (context, index) {
-                      return _VpnDetectorFindingTile(
+                      return _BadAppFindingTile(
                         finding: findings[index],
                         textCatalog: widget.textCatalog,
                       );
@@ -381,21 +382,20 @@ class _HomePageState extends State<HomePage> {
   }
 }
 
-class _VpnDetectorFindingTile extends StatelessWidget {
-  const _VpnDetectorFindingTile({
+class _BadAppFindingTile extends StatelessWidget {
+  const _BadAppFindingTile({
     required this.finding,
     required this.textCatalog,
   });
 
-  final VpnDetectorFinding finding;
+  final BadAppFinding finding;
   final AppTextCatalog textCatalog;
 
   @override
   Widget build(BuildContext context) {
     final textTheme = Theme.of(context).textTheme;
-    final title = finding.rootName.trim().isEmpty
-        ? _basename(finding.rootPath)
-        : finding.rootName.trim();
+    final title = finding.title;
+    final details = _detailLines();
 
     return DecoratedBox(
       decoration: BoxDecoration(
@@ -409,7 +409,7 @@ class _VpnDetectorFindingTile extends StatelessWidget {
           children: [
             Row(
               children: [
-                const Icon(Icons.security_outlined, size: 20),
+                Icon(_categoryIcon, size: 20),
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
@@ -420,47 +420,46 @@ class _VpnDetectorFindingTile extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(width: 8),
-                Text(
-                  '${textCatalog.t('label.vpn_scan_score')}: '
-                  '${finding.score}',
-                  style: textTheme.labelMedium,
+                DecoratedBox(
+                  decoration: BoxDecoration(
+                    color: MaydayColors.chip,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 4,
+                    ),
+                    child: Text(
+                      _categoryLabel,
+                      style: textTheme.labelMedium,
+                    ),
+                  ),
                 ),
               ],
             ),
-            const SizedBox(height: 6),
-            Text(
-              finding.rootPath,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-              style: textTheme.bodySmall,
-            ),
-            if (finding.signals.isNotEmpty) ...[
-              const SizedBox(height: 8),
-              Text(
-                '${textCatalog.t('label.vpn_scan_signals')}: '
-                '${finding.signals.join(', ')}',
-                maxLines: 3,
-                overflow: TextOverflow.ellipsis,
-                style: textTheme.bodySmall,
-              ),
-            ],
-            if (finding.exeCandidates.isNotEmpty) ...[
-              const SizedBox(height: 8),
-              Text(
-                textCatalog.t('label.vpn_scan_exe_candidates'),
-                style: textTheme.labelMedium,
-              ),
-              const SizedBox(height: 4),
-              for (final exe in finding.exeCandidates.take(4))
+            if (details.isNotEmpty) ...[
+              const SizedBox(height: 6),
+              for (final detail in details)
                 Padding(
-                  padding: const EdgeInsets.only(bottom: 2),
+                  padding: const EdgeInsets.only(bottom: 3),
                   child: Text(
-                    exe,
-                    maxLines: 1,
+                    detail,
+                    maxLines: 2,
                     overflow: TextOverflow.ellipsis,
                     style: textTheme.bodySmall,
                   ),
                 ),
+            ],
+            if (finding.matchedKeywords.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              Text(
+                '${textCatalog.t('label.vpn_scan_signals')}: '
+                '${finding.matchedKeywords.join(', ')}',
+                maxLines: 3,
+                overflow: TextOverflow.ellipsis,
+                style: textTheme.bodySmall,
+              ),
             ],
           ],
         ),
@@ -468,8 +467,39 @@ class _VpnDetectorFindingTile extends StatelessWidget {
     );
   }
 
-  String _basename(String path) {
-    final normalized = path.replaceAll('\\', '/');
-    return normalized.split('/').last;
+  IconData get _categoryIcon {
+    return switch (finding.category) {
+      'executable_file' => Icons.description_outlined,
+      'service' => Icons.miscellaneous_services_outlined,
+      'scheduled_task' => Icons.event_repeat_outlined,
+      _ => Icons.apps_outlined,
+    };
+  }
+
+  String get _categoryLabel {
+    return switch (finding.category) {
+      'executable_file' => textCatalog.t('category.bad_app_executable_file'),
+      'service' => textCatalog.t('category.bad_app_service'),
+      'scheduled_task' => textCatalog.t('category.bad_app_scheduled_task'),
+      _ => textCatalog.t('category.bad_app_installed_program'),
+    };
+  }
+
+  List<String> _detailLines() {
+    final lines = <String>[];
+    void add(String labelKey, String value) {
+      final trimmed = value.trim();
+      if (trimmed.isEmpty) {
+        return;
+      }
+      lines.add('${textCatalog.t(labelKey)}: $trimmed');
+    }
+
+    add('label.bad_app_path', finding.path);
+    add('label.bad_app_publisher', finding.publisher);
+    add('label.bad_app_version', finding.version);
+    add('label.bad_app_status', finding.status);
+    add('label.bad_app_state', finding.state);
+    return lines;
   }
 }

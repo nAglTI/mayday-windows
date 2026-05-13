@@ -12,7 +12,7 @@ import '../../../core/models/metrics_config.dart';
 import '../../../core/models/relay_target.dart';
 import '../../../core/models/runtime_paths.dart';
 import '../../../core/models/server_target.dart';
-import '../../../core/models/vpn_detector_finding.dart';
+import '../../../core/models/bad_app_finding.dart';
 import '../../../core/services/runtime_launcher.dart';
 import '../../../core/services/tray_icon_service.dart';
 import '../../../core/models/transport_config.dart';
@@ -67,8 +67,8 @@ class HomeViewModel extends ChangeNotifier {
   String? lastImportedPath;
   RuntimePaths? paths;
   List<String> missingRuntimeFiles = const [];
-  List<VpnDetectorFinding>? vpnDetectorFindings;
-  DateTime? vpnDetectorScannedAt;
+  List<BadAppFinding>? badAppFindings;
+  DateTime? badAppScannedAt;
 
   String t(String key, [Map<String, Object?>? values]) {
     return _textCatalog.t(key, values);
@@ -187,13 +187,13 @@ class HomeViewModel extends ChangeNotifier {
     }
   }
 
-  Future<List<VpnDetectorFinding>?> scanVpnDetectorFindings() async {
+  Future<List<BadAppFinding>?> scanBadAppFindings() async {
     _setBusy(true, statusKey: 'status.scanning_apps', clearError: true);
 
     try {
-      final findings = await _controller.scanVpnDetectorFindings();
-      vpnDetectorFindings = findings;
-      vpnDetectorScannedAt = DateTime.now();
+      final findings = await _controller.scanBadAppFindings();
+      badAppFindings = findings;
+      badAppScannedAt = DateTime.now();
       if (findings.isNotEmpty) {
         statusMessage = null;
         errorMessage = t('message.vpn_scan_blocked', {
@@ -205,8 +205,8 @@ class HomeViewModel extends ChangeNotifier {
       }
       return findings;
     } catch (error) {
-      vpnDetectorFindings = null;
-      vpnDetectorScannedAt = null;
+      badAppFindings = null;
+      badAppScannedAt = null;
       statusMessage = null;
       errorMessage = t('message.vpn_scan_failed', {'error': error});
       return null;
@@ -415,10 +415,10 @@ class HomeViewModel extends ChangeNotifier {
 
   bool get engineReady => missingRuntimeFiles.isEmpty;
 
-  bool get hasVpnDetectorScanResult => vpnDetectorFindings != null;
+  bool get hasBadAppScanResult => badAppFindings != null;
 
-  String get vpnDetectorScanSummary {
-    final findings = vpnDetectorFindings;
+  String get badAppScanSummary {
+    final findings = badAppFindings;
     if (findings == null) {
       return t('status.not_scanned');
     }

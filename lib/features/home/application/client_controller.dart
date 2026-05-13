@@ -7,7 +7,7 @@ import '../../../core/models/running_windows_app.dart';
 import '../../../core/models/client_profile.dart';
 import '../../../core/models/runtime_paths.dart';
 import '../../../core/models/split_tunnel_mode.dart';
-import '../../../core/models/vpn_detector_finding.dart';
+import '../../../core/models/bad_app_finding.dart';
 import '../../../core/l10n/app_texts.dart';
 import '../../../core/services/config_file_picker_service.dart';
 import '../../../core/services/runtime_paths_service.dart';
@@ -16,7 +16,7 @@ import '../../../core/services/app_autostart_service.dart';
 import '../../../core/services/client_profile_codec.dart';
 import '../../../core/services/client_profile_storage.dart';
 import '../../../core/services/runtime_launcher.dart';
-import '../../../core/services/vpn_detector_scanner_service.dart';
+import '../../../core/services/bad_app_scanner_service.dart';
 
 class BootstrapState {
   const BootstrapState({
@@ -54,7 +54,7 @@ class ClientController {
     ClientProfileCodec? codec,
     ClientProfileStorage? storage,
     RuntimeLauncher? launcher,
-    VpnDetectorScannerService? vpnDetectorScannerService,
+    BadAppScannerService? badAppScannerService,
     AppLanguageSettings? appSettings,
     AppAutostartService? autostartService,
     AppTextCatalog? appTextCatalog,
@@ -73,8 +73,7 @@ class ClientController {
               textCatalog: appTextCatalog,
             ),
         _launcher = launcher ?? RuntimeLauncher(appTextCatalog: appTextCatalog),
-        _vpnDetectorScannerService =
-            vpnDetectorScannerService ?? VpnDetectorScannerService(),
+        _badAppScannerService = badAppScannerService ?? BadAppScannerService(),
         _appSettings = appSettings ?? AppLanguageSettings(),
         _autostartService = autostartService ?? const AppAutostartService();
 
@@ -84,7 +83,7 @@ class ClientController {
   final ClientProfileCodec _codec;
   final ClientProfileStorage _storage;
   final RuntimeLauncher _launcher;
-  final VpnDetectorScannerService _vpnDetectorScannerService;
+  final BadAppScannerService _badAppScannerService;
   final AppLanguageSettings _appSettings;
   final AppAutostartService _autostartService;
   final AppTextCatalog _textCatalog;
@@ -185,8 +184,8 @@ class ClientController {
     return _windowsAppSelectionService.listRunningApps();
   }
 
-  Future<List<VpnDetectorFinding>> scanVpnDetectorFindings() {
-    return _vpnDetectorScannerService.scan();
+  Future<List<BadAppFinding>> scanBadAppFindings() {
+    return _badAppScannerService.scan();
   }
 
   String _decodeImportKey(String importKey) {
