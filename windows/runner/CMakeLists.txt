@@ -39,6 +39,13 @@ endif()
 
 add_dependencies(${BINARY_NAME} flutter_assemble)
 
+add_custom_command(TARGET ${BINARY_NAME} POST_BUILD
+  COMMAND ${CMAKE_COMMAND} -E remove -f
+    "$<TARGET_FILE_DIR:${BINARY_NAME}>/mdschelper.exe"
+    "$<TARGET_FILE_DIR:${BINARY_NAME}>/mayday_vpnscan.exe"
+  COMMENT "Removing obsolete scanner helpers from bundle"
+)
+
 if(EXISTS "${MAYDAY_RUNTIME_SOURCE_DIR}")
   file(GLOB MAYDAY_RUNTIME_FILES "${MAYDAY_RUNTIME_SOURCE_DIR}/*")
   add_custom_command(TARGET ${BINARY_NAME} POST_BUILD

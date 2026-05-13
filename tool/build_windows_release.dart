@@ -6,20 +6,36 @@ import 'windows_build_common.dart';
 
 Future<void> main(List<String> args) async {
   final repoRoot = resolveRepoRoot();
+  final pubspecVersion = defaultBuildVersion(repoRoot);
   final flutterCmd = optionValue(
     args,
     '--flutter-cmd',
     defaultValue: defaultFlutterCommand(repoRoot),
   );
-  final buildName = optionValue(
-    args,
-    '--build-name',
-    defaultValue: defaultBuildName(repoRoot),
+  final buildVersion = AppBuildVersion.fromParts(
+    buildName: optionValue(
+      args,
+      '--build-name',
+      defaultValue: pubspecVersion.buildName,
+    ),
+    buildNumber: optionValue(
+      args,
+      '--build-number',
+      defaultValue: pubspecVersion.buildNumber,
+    ),
   );
   final symbolsDir = optionValue(
     args,
     '--symbols-dir',
-    defaultValue: defaultWindowsSymbolsDir(repoRoot, buildName),
+    defaultValue: defaultWindowsSymbolsDir(
+      repoRoot,
+      buildVersion.displayVersion,
+    ),
+  );
+  final buildVariant = optionValue(
+    args,
+    '--build-variant',
+    defaultValue: 'local',
   );
   final releaseDir =
       p.join(repoRoot, 'build', 'windows', 'x64', 'runner', 'Release');
@@ -38,7 +54,10 @@ Future<void> main(List<String> args) async {
       'windows',
       '--release',
       '--build-name',
-      buildName,
+      buildVersion.buildName,
+      '--build-number',
+      buildVersion.buildNumber,
+      '--dart-define=MAYDAY_BUILD_VARIANT=$buildVariant',
       '--obfuscate',
       '--split-debug-info',
       symbolsDir,
@@ -57,6 +76,7 @@ Future<void> main(List<String> args) async {
     workingDirectory: repoRoot,
   );
 
-  stdout.writeln('Windows release is ready in: $releaseDir');
+  stdout.writeln('Windows $buildVariant release is ready in: $releaseDir');
+  stdout.writeln('App version: ${buildVersion.displayVersion}');
   stdout.writeln('Obfuscation symbols are in: $symbolsDir');
 }

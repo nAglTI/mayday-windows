@@ -296,7 +296,7 @@ class _FakeRuntimePathsService extends RuntimePathsService {
     return RuntimePaths(
       installRoot: root,
       runtimeDir: p.join(root, 'runtime'),
-      clientExePath: p.join(root, 'runtime', 'vpnclient.exe'),
+      clientExePath: p.join(root, 'runtime', 'mdhelper.exe'),
       mutableRoot: root,
       configDir: configDir,
       configPath: p.join(configDir, 'client.yaml.dpapi'),

@@ -1,7 +1,11 @@
-﻿import 'package:flutter/material.dart';
+﻿import 'dart:async';
 
+import 'package:flutter/material.dart';
+
+import '../../../app/mayday_theme.dart';
 import '../../../core/l10n/app_texts.dart';
 import '../../../core/models/running_windows_app.dart';
+import '../../../core/models/bad_app_finding.dart';
 import '../application/client_controller.dart';
 import 'home_view_model.dart';
 import 'widgets/home_chrome.dart';
@@ -104,6 +108,12 @@ class _HomePageState extends State<HomePage> {
                             ConnectionView(
                               viewModel: _viewModel,
                               textCatalog: widget.textCatalog,
+                              onConnect: () {
+                                unawaited(_connectWithPreflight());
+                              },
+                              onPreflightScan: () {
+                                unawaited(_runPreflightScan());
+                              },
                               onOpenSettings: () {
                                 _viewModel.setSelectedSection(
                                   HomeSection.settings,
@@ -171,6 +181,30 @@ class _HomePageState extends State<HomePage> {
       return;
     }
     _viewModel.addSplitTunnelApp(selectedPath);
+  }
+
+  Future<void> _connectWithPreflight() async {
+    final findings = _viewModel.hasBadAppScanResult
+        ? _viewModel.badAppFindings
+        : await _viewModel.scanBadAppFindings();
+    if (!mounted || findings == null) {
+      return;
+    }
+
+    if (findings.isNotEmpty) {
+      await _showBadAppScanBlockedDialog(findings);
+      return;
+    }
+
+    await _viewModel.saveAndLaunch();
+  }
+
+  Future<void> _runPreflightScan() async {
+    final findings = await _viewModel.scanBadAppFindings();
+    if (!mounted || findings == null || findings.isEmpty) {
+      return;
+    }
+    await _showBadAppScanBlockedDialog(findings);
   }
 
   Future<String?> _showImportKeyDialog() async {
@@ -303,5 +337,169 @@ class _HomePageState extends State<HomePage> {
     );
     searchController.dispose();
     return result;
+  }
+
+  Future<void> _showBadAppScanBlockedDialog(
+    List<BadAppFinding> findings,
+  ) {
+    return showDialog<void>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: Text(widget.textCatalog.t('title.vpn_scan_blocked')),
+          content: SizedBox(
+            width: 600,
+            height: 520,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(widget.textCatalog.t('title.vpn_scan_blocked_body')),
+                const SizedBox(height: 14),
+                Expanded(
+                  child: ListView.separated(
+                    itemCount: findings.length,
+                    separatorBuilder: (_, __) => const SizedBox(height: 10),
+                    itemBuilder: (context, index) {
+                      return _BadAppFindingTile(
+                        finding: findings[index],
+                        textCatalog: widget.textCatalog,
+                      );
+                    },
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            FilledButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: Text(widget.textCatalog.t('button.close')),
+            ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _BadAppFindingTile extends StatelessWidget {
+  const _BadAppFindingTile({
+    required this.finding,
+    required this.textCatalog,
+  });
+
+  final BadAppFinding finding;
+  final AppTextCatalog textCatalog;
+
+  @override
+  Widget build(BuildContext context) {
+    final textTheme = Theme.of(context).textTheme;
+    final title = finding.title;
+    final details = _detailLines();
+
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        border: Border.all(color: Theme.of(context).dividerColor),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(_categoryIcon, size: 20),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: textTheme.titleMedium,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                DecoratedBox(
+                  decoration: BoxDecoration(
+                    color: MaydayColors.chip,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 4,
+                    ),
+                    child: Text(
+                      _categoryLabel,
+                      style: textTheme.labelMedium,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            if (details.isNotEmpty) ...[
+              const SizedBox(height: 6),
+              for (final detail in details)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 3),
+                  child: Text(
+                    detail,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: textTheme.bodySmall,
+                  ),
+                ),
+            ],
+            if (finding.matchedKeywords.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              Text(
+                '${textCatalog.t('label.vpn_scan_signals')}: '
+                '${finding.matchedKeywords.join(', ')}',
+                maxLines: 3,
+                overflow: TextOverflow.ellipsis,
+                style: textTheme.bodySmall,
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  IconData get _categoryIcon {
+    return switch (finding.category) {
+      'executable_file' => Icons.description_outlined,
+      'service' => Icons.miscellaneous_services_outlined,
+      'scheduled_task' => Icons.event_repeat_outlined,
+      _ => Icons.apps_outlined,
+    };
+  }
+
+  String get _categoryLabel {
+    return switch (finding.category) {
+      'executable_file' => textCatalog.t('category.bad_app_executable_file'),
+      'service' => textCatalog.t('category.bad_app_service'),
+      'scheduled_task' => textCatalog.t('category.bad_app_scheduled_task'),
+      _ => textCatalog.t('category.bad_app_installed_program'),
+    };
+  }
+
+  List<String> _detailLines() {
+    final lines = <String>[];
+    void add(String labelKey, String value) {
+      final trimmed = value.trim();
+      if (trimmed.isEmpty) {
+        return;
+      }
+      lines.add('${textCatalog.t(labelKey)}: $trimmed');
+    }
+
+    add('label.bad_app_path', finding.path);
+    add('label.bad_app_publisher', finding.publisher);
+    add('label.bad_app_version', finding.version);
+    add('label.bad_app_status', finding.status);
+    add('label.bad_app_state', finding.state);
+    return lines;
   }
 }

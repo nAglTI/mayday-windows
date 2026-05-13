@@ -6,20 +6,31 @@ import 'windows_build_common.dart';
 
 Future<void> main(List<String> args) async {
   final repoRoot = resolveRepoRoot();
+  final pubspecVersion = defaultBuildVersion(repoRoot);
   final flutterCmd = optionValue(
     args,
     '--flutter-cmd',
     defaultValue: defaultFlutterCommand(repoRoot),
   );
-  final buildName = optionValue(
-    args,
-    '--build-name',
-    defaultValue: defaultBuildName(repoRoot),
+  final buildVersion = AppBuildVersion.fromParts(
+    buildName: optionValue(
+      args,
+      '--build-name',
+      defaultValue: pubspecVersion.buildName,
+    ),
+    buildNumber: optionValue(
+      args,
+      '--build-number',
+      defaultValue: pubspecVersion.buildNumber,
+    ),
   );
   final symbolsDir = optionValue(
     args,
     '--symbols-dir',
-    defaultValue: defaultWindowsSymbolsDir(repoRoot, buildName),
+    defaultValue: defaultWindowsSymbolsDir(
+      repoRoot,
+      buildVersion.displayVersion,
+    ),
   );
   final isccPath = resolveIsccPath(
     optionValue(args, '--iscc-path', defaultValue: ''),
@@ -36,7 +47,11 @@ Future<void> main(List<String> args) async {
       '--flutter-cmd',
       flutterCmd,
       '--build-name',
-      buildName,
+      buildVersion.buildName,
+      '--build-number',
+      buildVersion.buildNumber,
+      '--build-variant',
+      'prod',
       '--symbols-dir',
       symbolsDir,
     ],
@@ -45,7 +60,8 @@ Future<void> main(List<String> args) async {
   await runChecked(
     isccPath,
     [
-      '/DAppVersion=$buildName',
+      '/DAppVersion=${buildVersion.displayVersion}',
+      '/DAppVersionInfo=${buildVersion.windowsVersion}',
       '/DFlutterReleaseDir=$releaseDir',
       '/DAppExeName=mayday_windows.exe',
       issPath,
@@ -54,5 +70,6 @@ Future<void> main(List<String> args) async {
   );
 
   stdout.writeln('Installer build completed.');
+  stdout.writeln('App version: ${buildVersion.displayVersion}');
   stdout.writeln('Obfuscation symbols are in: $symbolsDir');
 }

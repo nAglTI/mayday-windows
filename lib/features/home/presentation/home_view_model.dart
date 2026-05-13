@@ -12,6 +12,7 @@ import '../../../core/models/metrics_config.dart';
 import '../../../core/models/relay_target.dart';
 import '../../../core/models/runtime_paths.dart';
 import '../../../core/models/server_target.dart';
+import '../../../core/models/bad_app_finding.dart';
 import '../../../core/services/runtime_launcher.dart';
 import '../../../core/services/tray_icon_service.dart';
 import '../../../core/models/transport_config.dart';
@@ -66,6 +67,8 @@ class HomeViewModel extends ChangeNotifier {
   String? lastImportedPath;
   RuntimePaths? paths;
   List<String> missingRuntimeFiles = const [];
+  List<BadAppFinding>? badAppFindings;
+  DateTime? badAppScannedAt;
 
   String t(String key, [Map<String, Object?>? values]) {
     return _textCatalog.t(key, values);
@@ -179,6 +182,34 @@ class HomeViewModel extends ChangeNotifier {
     } catch (error) {
       errorMessage = t('message.launch_failed', {'error': error});
       _setRuntimeStarted(false);
+    } finally {
+      _setBusy(false);
+    }
+  }
+
+  Future<List<BadAppFinding>?> scanBadAppFindings() async {
+    _setBusy(true, statusKey: 'status.scanning_apps', clearError: true);
+
+    try {
+      final findings = await _controller.scanBadAppFindings();
+      badAppFindings = findings;
+      badAppScannedAt = DateTime.now();
+      if (findings.isNotEmpty) {
+        statusMessage = null;
+        errorMessage = t('message.vpn_scan_blocked', {
+          'count': findings.length,
+        });
+      } else {
+        errorMessage = null;
+        statusMessage = t('message.vpn_scan_clear');
+      }
+      return findings;
+    } catch (error) {
+      badAppFindings = null;
+      badAppScannedAt = null;
+      statusMessage = null;
+      errorMessage = t('message.vpn_scan_failed', {'error': error});
+      return null;
     } finally {
       _setBusy(false);
     }
@@ -383,6 +414,19 @@ class HomeViewModel extends ChangeNotifier {
   }
 
   bool get engineReady => missingRuntimeFiles.isEmpty;
+
+  bool get hasBadAppScanResult => badAppFindings != null;
+
+  String get badAppScanSummary {
+    final findings = badAppFindings;
+    if (findings == null) {
+      return t('status.not_scanned');
+    }
+    if (findings.isEmpty) {
+      return t('status.scan_clear');
+    }
+    return t('status.scan_blocked_count', {'count': findings.length});
+  }
 
   String metricsDirectory(ClientProfile profile) {
     final fileDir = profile.metrics.fileDir.trim();

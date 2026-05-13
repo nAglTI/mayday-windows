@@ -11,11 +11,15 @@ class ConnectionView extends StatelessWidget {
     required this.viewModel,
     required this.textCatalog,
     required this.onOpenSettings,
+    required this.onConnect,
+    required this.onPreflightScan,
   });
 
   final HomeViewModel viewModel;
   final AppTextCatalog textCatalog;
   final VoidCallback onOpenSettings;
+  final VoidCallback onConnect;
+  final VoidCallback onPreflightScan;
 
   @override
   Widget build(BuildContext context) {
@@ -41,7 +45,7 @@ class ConnectionView extends StatelessWidget {
               ? null
               : viewModel.isRuntimeStarted
                   ? viewModel.stopConnection
-                  : viewModel.saveAndLaunch,
+                  : onConnect,
         ),
         const SizedBox(height: 12),
         HomeMessagePanel(viewModel: viewModel),
@@ -72,14 +76,36 @@ class ConnectionView extends StatelessWidget {
                 label: textCatalog.t('label.mode'),
                 value: viewModel.splitModeLabel(viewModel.splitTunnelMode),
               ),
+              const Hairline(),
+              StatRow(
+                label: textCatalog.t('label.preflight_scan'),
+                value: viewModel.badAppScanSummary,
+                accent: _preflightScanColor,
+              ),
             ],
           ),
         ),
         const SizedBox(height: 12),
-        OutlinedButton.icon(
-          onPressed: onOpenSettings,
-          icon: const Icon(Icons.tune_outlined),
-          label: ButtonLabel(textCatalog.t('button.open_settings')),
+        Row(
+          children: [
+            Expanded(
+              child: OutlinedButton.icon(
+                onPressed: viewModel.isBusy || viewModel.isRuntimeStarted
+                    ? null
+                    : onPreflightScan,
+                icon: const Icon(Icons.health_and_safety_outlined),
+                label: ButtonLabel(textCatalog.t('button.preflight_scan')),
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: OutlinedButton.icon(
+                onPressed: onOpenSettings,
+                icon: const Icon(Icons.tune_outlined),
+                label: ButtonLabel(textCatalog.t('button.open_settings')),
+              ),
+            ),
+          ],
         ),
         if (!viewModel.engineReady) ...[
           const SizedBox(height: 18),
@@ -107,6 +133,14 @@ class ConnectionView extends StatelessWidget {
       return MaydayColors.accent;
     }
     return MaydayColors.muted;
+  }
+
+  Color? get _preflightScanColor {
+    final findings = viewModel.badAppFindings;
+    if (findings == null) {
+      return MaydayColors.muted;
+    }
+    return findings.isEmpty ? MaydayColors.accent : MaydayColors.danger;
   }
 }
 

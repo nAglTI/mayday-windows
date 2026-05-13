@@ -23,7 +23,7 @@ Future<void> main(List<String> args) async {
   final clean = hasFlag(args, '--clean');
 
   const requiredFiles = [
-    'vpnclient.exe',
+    'mdhelper.exe',
     'WinDivert.dll',
     'WinDivert64.sys',
     'wintun.dll',

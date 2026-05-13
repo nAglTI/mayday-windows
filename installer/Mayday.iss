@@ -2,6 +2,10 @@
   #define AppVersion "0.1.0"
 #endif
 
+#ifndef AppVersionInfo
+  #define AppVersionInfo AppVersion
+#endif
+
 #ifndef FlutterReleaseDir
   #error FlutterReleaseDir define is required
 #endif
@@ -29,6 +33,10 @@ WizardStyle=modern
 OutputDir=dist\installer
 OutputBaseFilename=mayday-{#AppVersion}-setup
 UninstallDisplayIcon={app}\{#AppExeName}
+VersionInfoVersion={#AppVersionInfo}
+VersionInfoProductVersion={#AppVersionInfo}
+VersionInfoTextVersion={#AppVersion}
+VersionInfoProductTextVersion={#AppVersion}
 
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"
