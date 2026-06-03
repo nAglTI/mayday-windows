@@ -52,12 +52,6 @@ class ClientProfileCodec {
   };
   static const _transportKeys = {'mode'};
   static const _networkRescueKeys = {'enabled', 'profile'};
-  static const _metricsKeys = {
-    'enabled',
-    'window_seconds',
-    'file_enabled',
-    'file_dir',
-  };
   static const _relayKeys = {
     'id',
     'addr',
@@ -133,8 +127,7 @@ class ClientProfileCodec {
       'disable_packet_batching': profile.disablePacketBatching,
       'discovery_relays': _encodeRelays(profile.relays),
       'servers': _encodeServers(profile.servers),
-      if (_shouldEncodeMetrics(profile.metrics))
-        'metrics': _encodeMetrics(profile.metrics),
+      'metrics': _encodeMetrics(profile.metrics),
       'split_tunnel': _encodeSplitTunnel(profile),
     };
 
@@ -155,9 +148,6 @@ class ClientProfileCodec {
       throw FormatException(_textCatalog.t('codec.failback_delay_invalid'));
     }
 
-    if (profile.metrics.windowSeconds < 1) {
-      throw FormatException(_textCatalog.t('codec.metrics_window_invalid'));
-    }
     if (!_validTunnelMtu(profile.tunnelMtu, disableIpv6: profile.disableIpv6)) {
       throw FormatException(_textCatalog.t('codec.tunnel_mtu_invalid'));
     }
@@ -358,6 +348,13 @@ class ClientProfileCodec {
     );
   }
 
+  MetricsConfig _parseMetrics(dynamic rawMetrics) {
+    final metrics = _toMap(rawMetrics);
+    return MetricsConfig(
+      enabled: _readBool(metrics['enabled']),
+    );
+  }
+
   NetworkRescueConfig _parseNetworkRescue(dynamic rawNetworkRescue) {
     final networkRescue = _toMap(rawNetworkRescue);
     final explicitProfile = networkRescue['profile']?.toString();
@@ -368,17 +365,6 @@ class ClientProfileCodec {
     return NetworkRescueConfig(
       profile: profile,
       extraFields: _unknownFields(networkRescue, _networkRescueKeys),
-    );
-  }
-
-  MetricsConfig _parseMetrics(dynamic rawMetrics) {
-    final metrics = _toMap(rawMetrics);
-    return MetricsConfig(
-      enabled: _readBool(metrics['enabled'], fallback: true),
-      windowSeconds: _parseInt(metrics['window_seconds']) ?? 600,
-      fileEnabled: _readBool(metrics['file_enabled']),
-      fileDir: metrics['file_dir']?.toString().trim() ?? '',
-      extraFields: _unknownFields(metrics, _metricsKeys),
     );
   }
 
@@ -463,19 +449,10 @@ class ClientProfileCodec {
   Map<String, Object?> _encodeMetrics(MetricsConfig metrics) {
     return {
       'enabled': metrics.enabled,
-      'window_seconds': metrics.windowSeconds,
-      'file_enabled': metrics.fileEnabled,
-      'file_dir': metrics.fileDir.trim(),
-      ..._unknownFields(metrics.extraFields, _metricsKeys),
+      'window_seconds': 600,
+      'file_enabled': false,
+      'file_dir': '',
     };
-  }
-
-  bool _shouldEncodeMetrics(MetricsConfig metrics) {
-    return metrics.enabled != true ||
-        metrics.windowSeconds != 600 ||
-        metrics.fileEnabled != false ||
-        metrics.fileDir.trim().isNotEmpty ||
-        metrics.extraFields.isNotEmpty;
   }
 
   List<Map<String, Object?>> _encodeRelays(List<RelayTarget> relays) {

@@ -2,8 +2,6 @@ import 'dart:async';
 
 import 'package:flutter/widgets.dart';
 
-import 'package:path/path.dart' as p;
-
 import '../../../core/l10n/app_texts.dart';
 import '../../../core/models/running_windows_app.dart';
 import '../../../core/models/split_tunnel_mode.dart';
@@ -48,16 +46,13 @@ class HomeViewModel extends ChangeNotifier {
   final tunNameController = TextEditingController();
   final dnsController = TextEditingController();
   final failbackDelayController = TextEditingController();
-  final metricsWindowController = TextEditingController();
-  final metricsFileDirController = TextEditingController();
   final tunnelMtuController = TextEditingController();
   final packetFragmentPayloadController = TextEditingController();
 
   SplitTunnelMode splitTunnelMode = SplitTunnelMode.disabled;
   TransportMode transportMode = TransportMode.auto;
   NetworkRescueProfile networkRescueProfile = NetworkRescueProfile.off;
-  bool metricsEnabled = true;
-  bool metricsFileEnabled = true;
+  bool metricsEnabled = false;
   bool autoStartEnabled = true;
   bool prestartFullProbe = false;
   bool steadyStateQuickProbeEnabled = false;
@@ -73,7 +68,6 @@ class HomeViewModel extends ChangeNotifier {
   Map<String, Object?> profileExtraFields = const {};
   Map<String, Object?> transportExtraFields = const {};
   Map<String, Object?> networkRescueExtraFields = const {};
-  Map<String, Object?> metricsExtraFields = const {};
   Map<String, Object?> splitTunnelExtraFields = const {};
   bool isBusy = true;
   bool isRuntimeStarted = false;
@@ -119,8 +113,6 @@ class HomeViewModel extends ChangeNotifier {
     tunNameController.dispose();
     dnsController.dispose();
     failbackDelayController.dispose();
-    metricsWindowController.dispose();
-    metricsFileDirController.dispose();
     tunnelMtuController.dispose();
     packetFragmentPayloadController.dispose();
     super.dispose();
@@ -331,11 +323,6 @@ class HomeViewModel extends ChangeNotifier {
     notifyListeners();
   }
 
-  void setMetricsFileEnabled(bool value) {
-    metricsFileEnabled = value;
-    notifyListeners();
-  }
-
   void setPrestartFullProbe(bool value) {
     prestartFullProbe = value;
     notifyListeners();
@@ -472,13 +459,7 @@ class HomeViewModel extends ChangeNotifier {
         profile: networkRescueProfile,
         extraFields: networkRescueExtraFields,
       ),
-      metrics: MetricsConfig(
-        enabled: metricsEnabled,
-        windowSeconds: int.tryParse(metricsWindowController.text.trim()) ?? 600,
-        fileEnabled: metricsFileEnabled,
-        fileDir: metricsFileDirController.text.trim(),
-        extraFields: metricsExtraFields,
-      ),
+      metrics: MetricsConfig(enabled: metricsEnabled),
       serverFailbackDelaySec:
           int.tryParse(failbackDelayController.text.trim()) ?? 60,
       prestartFullProbe: prestartFullProbe,
@@ -598,17 +579,6 @@ class HomeViewModel extends ChangeNotifier {
       return t('status.scan_clear');
     }
     return t('status.scan_blocked_count', {'count': findings.length});
-  }
-
-  String metricsDirectory(ClientProfile profile) {
-    final fileDir = profile.metrics.fileDir.trim();
-    if (fileDir.isEmpty) {
-      return paths?.runtimeDir ?? '';
-    }
-    if (p.isAbsolute(fileDir) || paths == null) {
-      return fileDir;
-    }
-    return p.normalize(p.join(paths!.runtimeDir, fileDir));
   }
 
   void dismissAvailableUpdate() {
@@ -753,15 +723,12 @@ class HomeViewModel extends ChangeNotifier {
     tunNameController.text = profile.tunName;
     dnsController.text = profile.dnsServers.join(', ');
     failbackDelayController.text = '${profile.serverFailbackDelaySec}';
-    metricsWindowController.text = '${profile.metrics.windowSeconds}';
-    metricsFileDirController.text = profile.metrics.fileDir;
     tunnelMtuController.text = '${profile.tunnelMtu}';
     packetFragmentPayloadController.text =
         '${profile.packetFragmentPayloadBytes}';
     transportMode = profile.transport.mode;
     networkRescueProfile = profile.networkRescue.profile;
     metricsEnabled = profile.metrics.enabled;
-    metricsFileEnabled = profile.metrics.fileEnabled;
     prestartFullProbe = profile.prestartFullProbe;
     steadyStateQuickProbeEnabled = profile.steadyStateQuickProbeEnabled;
     steadyStateBenchmarkEnabled = profile.steadyStateBenchmarkEnabled;
@@ -776,7 +743,6 @@ class HomeViewModel extends ChangeNotifier {
     profileExtraFields = profile.extraFields;
     transportExtraFields = profile.transport.extraFields;
     networkRescueExtraFields = profile.networkRescue.extraFields;
-    metricsExtraFields = profile.metrics.extraFields;
     splitTunnelExtraFields = profile.splitTunnelExtraFields;
     splitTunnelMode = profile.splitTunnelMode;
   }

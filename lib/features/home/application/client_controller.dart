@@ -3,6 +3,7 @@ import 'dart:io';
 
 import '../../../core/models/running_windows_app.dart';
 import '../../../core/models/client_profile.dart';
+import '../../../core/models/metrics_config.dart';
 import '../../../core/models/runtime_paths.dart';
 import '../../../core/models/split_tunnel_mode.dart';
 import '../../../core/models/bad_app_scan_result.dart';
@@ -126,7 +127,9 @@ class ClientController {
     final raw = _decodeImportKey(importKey);
     return ImportedProfile(
       filePath: 'mayday://import',
-      profile: _codec.parseCurrentContractRaw(raw),
+      profile: _codec.parseCurrentContractRaw(raw).copyWith(
+            metrics: const MetricsConfig(),
+          ),
     );
   }
 

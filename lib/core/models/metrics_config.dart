@@ -1,6 +1,6 @@
 class MetricsConfig {
   const MetricsConfig({
-    this.enabled = true,
+    this.enabled = false,
     this.windowSeconds = 600,
     this.fileEnabled = false,
     this.fileDir = '',

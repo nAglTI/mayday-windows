@@ -18,6 +18,20 @@ import 'package:mayday_windows/features/home/presentation/home_view_model.dart';
 void main() {
   const userKey =
       '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
+  const disabledMetricsYaml = '''
+metrics:
+  enabled: false
+  window_seconds: 600
+  file_enabled: false
+  file_dir: ''
+''';
+  const enabledMetricsYaml = '''
+metrics:
+  enabled: true
+  window_seconds: 600
+  file_enabled: false
+  file_dir: ''
+''';
 
   test('imports current config and exports minimal discovery config', () {
     const raw = '''
@@ -78,7 +92,9 @@ split_tunnel:
     expect(profile.relays.single.transportPorts['https-rest'], [443]);
     expect(profile.relays.single.transportPorts['raw-udp'], [51825]);
     expect(profile.networkRescue.profile, NetworkRescueProfile.extreme);
-    expect(profile.metrics.fileDir, './metrics');
+    expect(profile.metrics.enabled, isTrue);
+    expect(profile.metrics.fileEnabled, isFalse);
+    expect(profile.metrics.fileDir, isEmpty);
     expect(encoded, contains('discovery_relays:'));
     expect(encoded, contains('transport_ports:'));
     expect(encoded, contains('bt-utp: [51821, 51822]'));
@@ -91,8 +107,8 @@ split_tunnel:
     expect(encoded, contains('enabled: true'));
     expect(encoded, contains('profile: \'extreme\''));
     expect(encoded, contains('future_rescue: \'kept\''));
-    expect(encoded, contains('metrics:'));
-    expect(encoded, contains('future_metrics: \'kept\''));
+    expect(encoded, contains(enabledMetricsYaml));
+    expect(encoded, isNot(contains('future_metrics')));
     expect(encoded, contains('future_relay: \'kept\''));
     expect(encoded, contains('future_server: \'kept\''));
     expect(encoded, contains('future_split: \'kept\''));
@@ -167,18 +183,26 @@ split_tunnel:
 
     await viewModel.importConfigFromKey(base64Url.encode(utf8.encode(raw)));
     expect(viewModel.errorMessage, isNull);
+    expect(viewModel.metricsEnabled, isFalse);
 
     final encoded = codec.encodeYaml(viewModel.collectProfile());
     expect(encoded, contains('future_top: \'kept\''));
     expect(encoded, contains('future_transport: true'));
     expect(encoded, contains('future_rescue: \'kept\''));
     expect(encoded, contains('profile: \'stable\''));
-    expect(encoded, contains('future_metrics: \'kept\''));
+    expect(encoded, contains(disabledMetricsYaml));
+    expect(encoded, isNot(contains('future_metrics')));
     expect(encoded, contains('packet_fragment_payload_bytes: 100'));
     expect(encoded, contains('disable_packet_batching: true'));
     expect(encoded, contains('future_relay: \'kept\''));
     expect(encoded, contains('future_server: \'kept\''));
     expect(encoded, contains('future_split: \'kept\''));
+
+    viewModel.setMetricsEnabled(true);
+    final encodedWithMetrics = codec.encodeYaml(viewModel.collectProfile());
+
+    expect(encodedWithMetrics, contains(enabledMetricsYaml));
+    expect(encodedWithMetrics, isNot(contains('future_metrics')));
   });
 
   test('imports and exports discovery relays with relay keys', () {
@@ -539,7 +563,7 @@ split_tunnel:
     expect(encoded, isNot(contains('\n  apps:')));
   });
 
-  test('missing metrics config keeps file metrics disabled by default', () {
+  test('metrics stay disabled by default in the encoded config', () {
     const raw = '''
 user_id: 1
 tun_name: "VPN0"
@@ -569,10 +593,10 @@ split_tunnel:
     final profile = codec.parseRaw(raw);
     final encoded = codec.encodeYaml(profile);
 
-    expect(profile.metrics.enabled, isTrue);
+    expect(profile.metrics.enabled, isFalse);
     expect(profile.metrics.fileEnabled, isFalse);
     expect(profile.metrics.fileDir, isEmpty);
-    expect(encoded, isNot(contains('metrics:')));
+    expect(encoded, contains(disabledMetricsYaml));
   });
 
   test(

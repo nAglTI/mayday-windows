@@ -293,6 +293,11 @@ disable_ipv6: true
 tunnel_mtu: 100
 packet_fragment_payload_bytes: 100
 disable_packet_batching: true
+metrics:
+  enabled: true
+  window_seconds: 600
+  file_enabled: true
+  file_dir: "./metrics"
 discovery_relays:
   - id: "relay-main"
     addr: "relay.example.net"
@@ -326,9 +331,11 @@ split_tunnel:
     expect(viewModel.tunnelMtuController.text, '100');
     expect(viewModel.packetFragmentPayloadController.text, '100');
     expect(viewModel.disablePacketBatching, isTrue);
+    expect(viewModel.metricsEnabled, isFalse);
 
     viewModel.setPacketFragmentPayloadBytes(512);
     viewModel.setNetworkRescueProfile(NetworkRescueProfile.extreme);
+    viewModel.setMetricsEnabled(true);
     viewModel.tunnelMtuController.text = '1500';
     final profile = viewModel.collectProfile();
 
@@ -337,6 +344,9 @@ split_tunnel:
     expect(profile.tunnelMtu, 1500);
     expect(profile.packetFragmentPayloadBytes, 512);
     expect(profile.disablePacketBatching, isTrue);
+    expect(profile.metrics.enabled, isTrue);
+    expect(profile.metrics.fileEnabled, isFalse);
+    expect(profile.metrics.fileDir, isEmpty);
   });
 }
 
