@@ -12,6 +12,7 @@
 - Added a pre-connect risk dialog when the app check has not passed cleanly, with actions to accept the risk or run the check.
 - Added saved app-check results that can be reopened later.
 - Added full path display and copy support in the app-check results dialog.
+- Added an advanced metrics switch that is turned off by default.
 - Added GitHub Releases update checking with a small update banner when a newer version is available.
 - Added tray icons that adapt to the Windows light or dark taskbar theme.
 
@@ -21,6 +22,7 @@
 - Improved import validation for the new runtime configuration format.
 - Improved the connection flow so app-check warnings are explained before connection instead of silently blocking the user.
 - Improved visibility of advanced connection details by moving protocol, core state, and similar technical fields away from the primary status area.
+- Improved metrics handling so imported access keys cannot enable metrics silently.
 - Improved tray icon sizing and theme behavior for better visibility on Windows.
 - Improved Windows runtime naming so user-facing helper processes use Mayday-specific names.
 - Improved release and installer build scripts so app versions are read consistently from `pubspec.yaml`.
@@ -49,6 +51,7 @@
 - Добавлен диалог перед подключением, если проверка приложений не была успешно пройдена, с действиями принять риск или запустить проверку.
 - Добавлено сохранение результатов проверки приложений, чтобы их можно было открыть повторно.
 - Добавлены отображение полного пути и копирование пути в диалоге результатов проверки.
+- Добавлен advanced-переключатель метрик, выключенный по умолчанию.
 - Добавлена проверка обновлений через GitHub Releases с небольшим баннером при наличии новой версии.
 - Добавлены иконки трея, которые подстраиваются под светлую или темную тему панели задач Windows.
 
@@ -58,6 +61,7 @@
 - Улучшена проверка импорта для нового формата конфигурации runtime.
 - Улучшен сценарий подключения: предупреждения проверки приложений объясняются пользователю до подключения, а не блокируют действие молча.
 - Улучшена читаемость главного экрана: protocol, core state и похожие технические поля убраны из основной области статуса.
+- Улучшена обработка метрик: импортированный ключ не может включить их без действия пользователя.
 - Улучшены размер и поведение иконок трея для лучшей видимости в Windows.
 - Улучшены имена Windows runtime-файлов, чтобы пользовательские helper-процессы использовали названия Mayday.
 - Улучшены скрипты релизной сборки и установщика: версия приложения читается из `pubspec.yaml` единообразно.

@@ -145,7 +145,6 @@ class AppTextCatalog {
       'section.transport': 'транспорт',
       'section.network_transport': 'транспорт и dns',
       'section.runtime_options': 'ядро и защита',
-      'section.metrics': 'метрики',
       'section.relays': 'реле',
       'section.servers': 'серверы',
       'section.split_routing': 'раздельная маршрутизация',
@@ -195,14 +194,6 @@ class AppTextCatalog {
       'label.packet_fast': 'быстро',
       'label.disable_packet_batching': 'Отключить batching пакетов',
       'label.metrics_enabled': 'Включить метрики',
-      'label.metrics_window': 'Окно метрик, секунд',
-      'label.metrics_window_helper':
-          'Используется для in-memory окна и ротации файлов.',
-      'label.metrics_file_enabled': 'Писать метрики в файл',
-      'label.metrics_file_dir': 'Директория метрик',
-      'label.metrics_file_dir_helper':
-          'Это директория, например ./metrics. Пусто — рядом со вспомогательным файлом Mayday.',
-      'label.metrics_dir': 'директория метрик',
       'label.priority': 'приоритет',
       'label.all_traffic': 'весь трафик',
       'label.only_selected': 'только выбранные',
@@ -366,10 +357,6 @@ class AppTextCatalog {
           'user_id должен быть целым положительным числом.',
       'codec.failback_delay_invalid':
           'server_failback_delay_sec должен быть -1 или больше.',
-      'codec.metrics_window_invalid':
-          'metrics.window_seconds должен быть положительным числом.',
-      'codec.metrics_file_dir_required':
-          'metrics.file_dir должен быть указан, если file_enabled=true.',
       'codec.tunnel_mtu_invalid':
           'tunnel_mtu должен быть от 1280 до 1500, либо от 100 до 1500 при disable_ipv6=true.',
       'codec.packet_fragment_payload_invalid':
@@ -495,7 +482,6 @@ class AppTextCatalog {
       'section.transport': 'transport',
       'section.network_transport': 'transport and dns',
       'section.runtime_options': 'core and protection',
-      'section.metrics': 'metrics',
       'section.relays': 'relays',
       'section.servers': 'servers',
       'section.split_routing': 'split routing',
@@ -545,14 +531,6 @@ class AppTextCatalog {
       'label.packet_fast': 'fast',
       'label.disable_packet_batching': 'Disable packet batching',
       'label.metrics_enabled': 'Enable metrics',
-      'label.metrics_window': 'Metrics window, seconds',
-      'label.metrics_window_helper':
-          'Used for the in-memory window and file rotation.',
-      'label.metrics_file_enabled': 'Write metrics file',
-      'label.metrics_file_dir': 'Metrics directory',
-      'label.metrics_file_dir_helper':
-          'A directory, for example ./metrics. Empty means next to the Mayday helper file.',
-      'label.metrics_dir': 'metrics directory',
       'label.priority': 'priority',
       'label.all_traffic': 'all traffic',
       'label.only_selected': 'only selected',
@@ -710,10 +688,6 @@ class AppTextCatalog {
       'codec.user_id_positive': 'user_id must be a positive integer.',
       'codec.failback_delay_invalid':
           'server_failback_delay_sec must be -1 or greater.',
-      'codec.metrics_window_invalid':
-          'metrics.window_seconds must be a positive number.',
-      'codec.metrics_file_dir_required':
-          'metrics.file_dir is required when file_enabled=true.',
       'codec.tunnel_mtu_invalid':
           'tunnel_mtu must be between 1280 and 1500, or between 100 and 1500 when disable_ipv6=true.',
       'codec.packet_fragment_payload_invalid':

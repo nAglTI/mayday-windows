@@ -133,44 +133,6 @@ class SettingsView extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 18),
-        CollapsibleSection(
-          title: textCatalog.t('section.metrics'),
-          initiallyExpanded: false,
-          expandTooltip: textCatalog.t('tooltip.expand_section'),
-          collapseTooltip: textCatalog.t('tooltip.collapse_section'),
-          child: Column(
-            children: [
-              SwitchListTile(
-                contentPadding: EdgeInsets.zero,
-                title: Text(textCatalog.t('label.metrics_enabled')),
-                value: viewModel.metricsEnabled,
-                onChanged:
-                    viewModel.isBusy ? null : viewModel.setMetricsEnabled,
-              ),
-              const Hairline(),
-              MaydayTextField(
-                label: textCatalog.t('label.metrics_window'),
-                controller: viewModel.metricsWindowController,
-                helperText: textCatalog.t('label.metrics_window_helper'),
-              ),
-              const SizedBox(height: 14),
-              SwitchListTile(
-                contentPadding: EdgeInsets.zero,
-                title: Text(textCatalog.t('label.metrics_file_enabled')),
-                value: viewModel.metricsFileEnabled,
-                onChanged:
-                    viewModel.isBusy ? null : viewModel.setMetricsFileEnabled,
-              ),
-              const Hairline(),
-              MaydayTextField(
-                label: textCatalog.t('label.metrics_file_dir'),
-                controller: viewModel.metricsFileDirController,
-                helperText: textCatalog.t('label.metrics_file_dir_helper'),
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 18),
         SectionTitle(textCatalog.t('section.relays')),
         const SizedBox(height: 8),
         SurfacePanel(
@@ -234,11 +196,6 @@ class SettingsView extends StatelessWidget {
                 StatRow(
                   label: textCatalog.t('section.config'),
                   value: viewModel.paths!.configPath,
-                ),
-                const Hairline(),
-                StatRow(
-                  label: textCatalog.t('label.metrics_dir'),
-                  value: viewModel.metricsDirectory(profile),
                 ),
               ],
               if (viewModel.lastImportedPath != null) ...[
@@ -320,6 +277,14 @@ class RuntimeOptionsPanel extends StatelessWidget {
           title: Text(textCatalog.t('label.steady_quick_probe')),
           value: viewModel.steadyStateQuickProbeEnabled,
           onChanged: enabled ? viewModel.setSteadyStateQuickProbeEnabled : null,
+        ),
+        const Hairline(),
+        SwitchListTile(
+          contentPadding: EdgeInsets.zero,
+          secondary: const Icon(Icons.analytics_outlined),
+          title: Text(textCatalog.t('label.metrics_enabled')),
+          value: viewModel.metricsEnabled,
+          onChanged: enabled ? viewModel.setMetricsEnabled : null,
         ),
         const Hairline(),
         SwitchListTile(
