@@ -12,6 +12,11 @@ import '../../../core/models/metrics_config.dart';
 import '../../../core/models/relay_target.dart';
 import '../../../core/models/runtime_paths.dart';
 import '../../../core/models/server_target.dart';
+import '../../../core/models/network_rescue_config.dart';
+import '../../../core/models/bad_app_finding.dart';
+import '../../../core/models/bad_app_scan_result.dart';
+import '../../../core/models/app_update_info.dart';
+import '../../../core/services/client_profile_codec.dart';
 import '../../../core/services/runtime_launcher.dart';
 import '../../../core/services/tray_icon_service.dart';
 import '../../../core/models/transport_config.dart';
@@ -34,26 +39,40 @@ class HomeViewModel extends ChangeNotifier {
   AppTextCatalog _textCatalog;
   final TrayIconService _trayIconService;
   StreamSubscription<bool>? _runningSubscription;
+  Future<BadAppScanResult>? _activeBadAppScan;
+  Future<AppUpdateInfo?>? _activeUpdateCheck;
+  bool _sessionBadAppScanStarted = false;
+  bool _disposed = false;
 
-  final displayNameController = TextEditingController();
   final userIdController = TextEditingController();
   final tunNameController = TextEditingController();
   final dnsController = TextEditingController();
   final failbackDelayController = TextEditingController();
   final metricsWindowController = TextEditingController();
   final metricsFileDirController = TextEditingController();
+  final tunnelMtuController = TextEditingController();
+  final packetFragmentPayloadController = TextEditingController();
 
   SplitTunnelMode splitTunnelMode = SplitTunnelMode.disabled;
   TransportMode transportMode = TransportMode.auto;
+  NetworkRescueProfile networkRescueProfile = NetworkRescueProfile.off;
   bool metricsEnabled = true;
   bool metricsFileEnabled = true;
   bool autoStartEnabled = true;
+  bool prestartFullProbe = false;
+  bool steadyStateQuickProbeEnabled = false;
+  bool steadyStateBenchmarkEnabled = false;
+  bool disableIpv6 = false;
+  int tunnelMtu = 1280;
+  int packetFragmentPayloadBytes = 0;
+  bool disablePacketBatching = false;
   List<RelayTarget> relays = const [];
   List<ServerTarget> servers = const [];
   List<String> windowsApps = const [];
   List<String> profileAndroidApps = const [];
   Map<String, Object?> profileExtraFields = const {};
   Map<String, Object?> transportExtraFields = const {};
+  Map<String, Object?> networkRescueExtraFields = const {};
   Map<String, Object?> metricsExtraFields = const {};
   Map<String, Object?> splitTunnelExtraFields = const {};
   bool isBusy = true;
@@ -63,9 +82,16 @@ class HomeViewModel extends ChangeNotifier {
 
   String? statusMessage;
   String? errorMessage;
+  String? warningMessage;
   String? lastImportedPath;
   RuntimePaths? paths;
   List<String> missingRuntimeFiles = const [];
+  List<BadAppFinding>? badAppFindings;
+  DateTime? badAppScannedAt;
+  bool badAppScanFailed = false;
+  bool badAppScanRanThisSession = false;
+  AppUpdateInfo? availableUpdate;
+  String? _dismissedUpdateVersion;
 
   String t(String key, [Map<String, Object?>? values]) {
     return _textCatalog.t(key, values);
@@ -86,19 +112,28 @@ class HomeViewModel extends ChangeNotifier {
 
   @override
   void dispose() {
+    _disposed = true;
     _runningSubscription?.cancel();
-    displayNameController.dispose();
+    unawaited(_controller.shutdownRuntime());
     userIdController.dispose();
     tunNameController.dispose();
     dnsController.dispose();
     failbackDelayController.dispose();
     metricsWindowController.dispose();
     metricsFileDirController.dispose();
+    tunnelMtuController.dispose();
+    packetFragmentPayloadController.dispose();
     super.dispose();
   }
 
   Future<void> bootstrap() async {
-    _setBusy(true, statusKey: 'status.loading', clearError: true);
+    _setBusy(
+      true,
+      statusKey: 'status.loading',
+      clearError: true,
+      clearWarning: true,
+    );
+    var shouldStartSessionScan = false;
 
     try {
       final state = await _controller.bootstrap();
@@ -106,6 +141,10 @@ class HomeViewModel extends ChangeNotifier {
       paths = state.paths;
       missingRuntimeFiles = state.missingRuntimeFiles;
       autoStartEnabled = state.autoStartEnabled;
+      badAppFindings = state.badAppScanResult?.findings;
+      badAppScannedAt = state.badAppScanResult?.scannedAt;
+      badAppScanFailed = false;
+      badAppScanRanThisSession = false;
       _setRuntimeStarted(_controller.isRunning);
       final runtimeStatus = state.missingRuntimeFiles.isEmpty
           ? t('message.runtime_available')
@@ -115,41 +154,35 @@ class HomeViewModel extends ChangeNotifier {
           : '$runtimeStatus ${t('message.autostart_apply_failed', {
                   'error': state.autoStartError,
                 })}';
+      warningMessage = state.savedProfileWarning;
+      shouldStartSessionScan = true;
     } catch (error) {
       errorMessage = t('message.bootstrap_failed', {'error': error});
     } finally {
       _setBusy(false);
-    }
-  }
-
-  Future<void> importConfig() async {
-    _setBusy(true, statusKey: 'status.importing', clearError: true);
-
-    try {
-      final result = await _controller.pickAndImportProfile();
-      if (result == null) {
-        statusMessage = t('message.import_cancelled');
-        return;
+      if (shouldStartSessionScan && !_disposed) {
+        _startSessionBadAppScan();
+        _startUpdateCheck();
       }
-
-      _applyProfile(result.profile);
-      lastImportedPath = result.filePath;
-      statusMessage = t('message.imported_file', {'file': result.fileName});
-    } catch (error) {
-      errorMessage = t('message.import_failed', {'error': error});
-    } finally {
-      _setBusy(false);
     }
   }
 
   Future<void> importConfigFromKey(String importKey) async {
-    _setBusy(true, statusKey: 'status.importing', clearError: true);
+    _setBusy(
+      true,
+      statusKey: 'status.importing',
+      clearError: true,
+      clearWarning: true,
+    );
 
     try {
       final result = _controller.importProfileFromKey(importKey);
       _applyProfile(result.profile);
       lastImportedPath = result.filePath;
+      warningMessage = null;
       statusMessage = t('message.imported_from_key');
+    } on ClientProfileContractException {
+      errorMessage = t('message.import_key_incompatible');
     } catch (error) {
       errorMessage = t('message.import_key_failed', {'error': error});
     } finally {
@@ -158,10 +191,16 @@ class HomeViewModel extends ChangeNotifier {
   }
 
   Future<void> saveProfile() async {
-    _setBusy(true, statusKey: 'status.saving', clearError: true);
+    _setBusy(
+      true,
+      statusKey: 'status.saving',
+      clearError: true,
+      clearWarning: true,
+    );
 
     try {
       final file = await _controller.saveProfile(collectProfile());
+      warningMessage = null;
       statusMessage = t('message.config_saved', {'path': file.path});
     } catch (error) {
       errorMessage = t('message.save_failed', {'error': error});
@@ -171,7 +210,12 @@ class HomeViewModel extends ChangeNotifier {
   }
 
   Future<void> saveAndLaunch() async {
-    _setBusy(true, statusKey: 'status.connecting', clearError: true);
+    _setBusy(
+      true,
+      statusKey: 'status.connecting',
+      clearError: true,
+      clearWarning: true,
+    );
 
     try {
       final result = await _controller.saveAndLaunch(collectProfile());
@@ -179,6 +223,42 @@ class HomeViewModel extends ChangeNotifier {
     } catch (error) {
       errorMessage = t('message.launch_failed', {'error': error});
       _setRuntimeStarted(false);
+    } finally {
+      _setBusy(false);
+    }
+  }
+
+  Future<List<BadAppFinding>?> scanBadAppFindings() async {
+    _setBusy(
+      true,
+      statusKey: 'status.scanning_apps',
+      clearError: true,
+      clearWarning: true,
+    );
+
+    try {
+      final result = await _runBadAppScan();
+      final findings = result.findings;
+      _applyBadAppScanResult(result);
+      if (findings.isNotEmpty) {
+        statusMessage = null;
+        errorMessage = null;
+        warningMessage = t('message.vpn_scan_blocked', {
+          'count': findings.length,
+        });
+      } else {
+        errorMessage = null;
+        warningMessage = null;
+        statusMessage = t('message.vpn_scan_clear');
+      }
+      return findings;
+    } catch (error) {
+      statusMessage = null;
+      warningMessage = null;
+      badAppScanRanThisSession = true;
+      badAppScanFailed = true;
+      errorMessage = t('message.vpn_scan_failed', {'error': error});
+      return null;
     } finally {
       _setBusy(false);
     }
@@ -241,6 +321,11 @@ class HomeViewModel extends ChangeNotifier {
     notifyListeners();
   }
 
+  void setNetworkRescueProfile(NetworkRescueProfile profile) {
+    networkRescueProfile = profile;
+    notifyListeners();
+  }
+
   void setMetricsEnabled(bool value) {
     metricsEnabled = value;
     notifyListeners();
@@ -248,6 +333,55 @@ class HomeViewModel extends ChangeNotifier {
 
   void setMetricsFileEnabled(bool value) {
     metricsFileEnabled = value;
+    notifyListeners();
+  }
+
+  void setPrestartFullProbe(bool value) {
+    prestartFullProbe = value;
+    notifyListeners();
+  }
+
+  void setSteadyStateQuickProbeEnabled(bool value) {
+    steadyStateQuickProbeEnabled = value;
+    notifyListeners();
+  }
+
+  void setSteadyStateBenchmarkEnabled(bool value) {
+    steadyStateBenchmarkEnabled = value;
+    notifyListeners();
+  }
+
+  void setDisableIpv6(bool value) {
+    disableIpv6 = value;
+    notifyListeners();
+  }
+
+  void setTunnelMtuFromText(String value) {
+    final parsed = int.tryParse(value.trim());
+    if (parsed == null) {
+      return;
+    }
+    tunnelMtu = parsed;
+    notifyListeners();
+  }
+
+  void setPacketFragmentPayloadFromText(String value) {
+    final parsed = int.tryParse(value.trim());
+    if (parsed == null) {
+      return;
+    }
+    packetFragmentPayloadBytes = parsed;
+    notifyListeners();
+  }
+
+  void setPacketFragmentPayloadBytes(int value) {
+    packetFragmentPayloadBytes = value;
+    packetFragmentPayloadController.text = '$value';
+    notifyListeners();
+  }
+
+  void setDisablePacketBatching(bool value) {
+    disablePacketBatching = value;
     notifyListeners();
   }
 
@@ -268,10 +402,31 @@ class HomeViewModel extends ChangeNotifier {
   }
 
   void addSplitTunnelApp(String appPath) {
-    windowsApps = _normalizeWindowsApps([...windowsApps, appPath]);
-    statusMessage = t('message.added_split_app', {
-      'app': _displayAppPath(appPath),
-    });
+    addSplitTunnelApps([appPath]);
+  }
+
+  void addSplitTunnelApps(Iterable<String> appPaths) {
+    final previousApps = windowsApps;
+    final previousAppKeys = {
+      for (final app in previousApps) app.toLowerCase(),
+    };
+    windowsApps = _normalizeWindowsApps([...windowsApps, ...appPaths]);
+    final addedApps = [
+      for (final app in windowsApps)
+        if (!previousAppKeys.contains(app.toLowerCase())) app,
+    ];
+    if (addedApps.isEmpty) {
+      notifyListeners();
+      return;
+    }
+
+    statusMessage = addedApps.length == 1
+        ? t('message.added_split_app', {
+            'app': _displayAppPath(addedApps.single),
+          })
+        : t('message.added_split_apps', {
+            'count': addedApps.length,
+          });
     errorMessage = null;
     notifyListeners();
   }
@@ -301,11 +456,9 @@ class HomeViewModel extends ChangeNotifier {
   }
 
   ClientProfile collectProfile() {
-    final displayName = displayNameController.text.trim();
     final dnsServers = _parseCsv(dnsController.text);
 
     return ClientProfile(
-      displayName: displayName.isEmpty ? t('home.primary') : displayName,
       relays: relays,
       userId: userIdController.text.trim(),
       servers: _normalizeServerPriorities(servers),
@@ -314,6 +467,10 @@ class HomeViewModel extends ChangeNotifier {
       transport: TransportConfig(
         mode: transportMode,
         extraFields: transportExtraFields,
+      ),
+      networkRescue: NetworkRescueConfig(
+        profile: networkRescueProfile,
+        extraFields: networkRescueExtraFields,
       ),
       metrics: MetricsConfig(
         enabled: metricsEnabled,
@@ -324,6 +481,15 @@ class HomeViewModel extends ChangeNotifier {
       ),
       serverFailbackDelaySec:
           int.tryParse(failbackDelayController.text.trim()) ?? 60,
+      prestartFullProbe: prestartFullProbe,
+      steadyStateQuickProbeEnabled: steadyStateQuickProbeEnabled,
+      steadyStateBenchmarkEnabled: steadyStateBenchmarkEnabled,
+      disableIpv6: disableIpv6,
+      tunnelMtu: int.tryParse(tunnelMtuController.text.trim()) ?? tunnelMtu,
+      packetFragmentPayloadBytes:
+          int.tryParse(packetFragmentPayloadController.text.trim()) ??
+              packetFragmentPayloadBytes,
+      disablePacketBatching: disablePacketBatching,
       splitTunnelMode: splitTunnelMode,
       windowsApps: _normalizeWindowsApps(windowsApps),
       androidApps: profileAndroidApps,
@@ -356,6 +522,25 @@ class HomeViewModel extends ChangeNotifier {
     };
   }
 
+  String transportModeLabel(TransportMode mode) {
+    return switch (mode) {
+      TransportMode.auto => t('label.transport_auto'),
+      TransportMode.tcp => t('label.transport_tcp'),
+      TransportMode.utp => t('label.transport_utp'),
+      TransportMode.ws => t('label.transport_ws'),
+      TransportMode.https => t('label.transport_https'),
+      TransportMode.rawUdp => t('label.transport_raw_udp'),
+    };
+  }
+
+  String networkRescueProfileLabel(NetworkRescueProfile profile) {
+    return switch (profile) {
+      NetworkRescueProfile.off => t('label.network_rescue_off'),
+      NetworkRescueProfile.stable => t('label.network_rescue_stable'),
+      NetworkRescueProfile.extreme => t('label.network_rescue_extreme'),
+    };
+  }
+
   String get connectionStatus {
     if (isBusy) {
       return t(busyStatusText);
@@ -384,6 +569,37 @@ class HomeViewModel extends ChangeNotifier {
 
   bool get engineReady => missingRuntimeFiles.isEmpty;
 
+  bool get hasBadAppScanResult => badAppFindings != null;
+
+  bool get isBadAppPreflightPassed =>
+      badAppScanRanThisSession &&
+      !badAppScanFailed &&
+      badAppFindings != null &&
+      badAppFindings!.isEmpty;
+
+  bool get shouldShowUpdateBanner {
+    final update = availableUpdate;
+    return update != null &&
+        update.latestVersion.displayVersion != _dismissedUpdateVersion;
+  }
+
+  String get badAppScanSummary {
+    if (!badAppScanRanThisSession) {
+      return t('status.not_scanned');
+    }
+    if (badAppScanFailed) {
+      return t('status.scan_failed');
+    }
+    final findings = badAppFindings;
+    if (findings == null) {
+      return t('status.not_scanned');
+    }
+    if (findings.isEmpty) {
+      return t('status.scan_clear');
+    }
+    return t('status.scan_blocked_count', {'count': findings.length});
+  }
+
   String metricsDirectory(ClientProfile profile) {
     final fileDir = profile.metrics.fileDir.trim();
     if (fileDir.isEmpty) {
@@ -395,11 +611,130 @@ class HomeViewModel extends ChangeNotifier {
     return p.normalize(p.join(paths!.runtimeDir, fileDir));
   }
 
+  void dismissAvailableUpdate() {
+    final update = availableUpdate;
+    if (update == null) {
+      return;
+    }
+
+    _dismissedUpdateVersion = update.latestVersion.displayVersion;
+    notifyListeners();
+  }
+
+  Future<void> openAvailableUpdate() async {
+    final update = availableUpdate;
+    if (update == null) {
+      return;
+    }
+
+    try {
+      await _controller.openUpdatePage(update);
+    } catch (error) {
+      errorMessage = t('message.update_open_failed', {'error': error});
+      notifyListeners();
+    }
+  }
+
+  void _startSessionBadAppScan() {
+    if (_sessionBadAppScanStarted) {
+      return;
+    }
+
+    _sessionBadAppScanStarted = true;
+    unawaited(_refreshBadAppScanInBackground());
+  }
+
+  void _startUpdateCheck() {
+    unawaited(_refreshUpdateInBackground());
+  }
+
+  Future<void> _refreshBadAppScanInBackground() async {
+    try {
+      final result = await _runBadAppScan();
+      if (_disposed) {
+        return;
+      }
+
+      _applyBadAppScanResult(result);
+      notifyListeners();
+    } catch (_) {
+      if (_disposed) {
+        return;
+      }
+
+      badAppScanRanThisSession = true;
+      badAppScanFailed = true;
+      notifyListeners();
+    }
+  }
+
+  Future<BadAppScanResult> _runBadAppScan() {
+    final activeScan = _activeBadAppScan;
+    if (activeScan != null) {
+      return activeScan;
+    }
+
+    final scan = _controller.scanBadAppFindings();
+    _activeBadAppScan = scan;
+    unawaited(
+      scan.then<void>((_) {}, onError: (_) {}).whenComplete(() {
+        if (identical(_activeBadAppScan, scan)) {
+          _activeBadAppScan = null;
+        }
+      }),
+    );
+    return scan;
+  }
+
+  Future<void> _refreshUpdateInBackground() async {
+    try {
+      final update = await _runUpdateCheck();
+      if (_disposed) {
+        return;
+      }
+
+      availableUpdate = update;
+      notifyListeners();
+    } catch (_) {
+      // Update checks are advisory; network failures should not disturb use.
+    }
+  }
+
+  Future<AppUpdateInfo?> _runUpdateCheck() {
+    final activeCheck = _activeUpdateCheck;
+    if (activeCheck != null) {
+      return activeCheck;
+    }
+
+    final check = _controller.checkForUpdate();
+    _activeUpdateCheck = check;
+    unawaited(
+      check.then<void>((_) {}, onError: (_) {}).whenComplete(() {
+        if (identical(_activeUpdateCheck, check)) {
+          _activeUpdateCheck = null;
+        }
+      }),
+    );
+    return check;
+  }
+
+  void _applyBadAppScanResult(BadAppScanResult result) {
+    badAppFindings = result.findings;
+    badAppScannedAt = result.scannedAt;
+    badAppScanFailed = false;
+    badAppScanRanThisSession = true;
+  }
+
   void _setBusy(
     bool value, {
     String? statusKey,
     bool clearError = false,
+    bool clearWarning = false,
   }) {
+    if (_disposed) {
+      return;
+    }
+
     isBusy = value;
     if (statusKey != null) {
       busyStatusText = statusKey;
@@ -407,26 +742,40 @@ class HomeViewModel extends ChangeNotifier {
     if (clearError) {
       errorMessage = null;
     }
+    if (clearWarning) {
+      warningMessage = null;
+    }
     notifyListeners();
   }
 
   void _applyProfile(ClientProfile profile) {
-    displayNameController.text = profile.displayName;
     userIdController.text = profile.userId;
     tunNameController.text = profile.tunName;
     dnsController.text = profile.dnsServers.join(', ');
     failbackDelayController.text = '${profile.serverFailbackDelaySec}';
     metricsWindowController.text = '${profile.metrics.windowSeconds}';
     metricsFileDirController.text = profile.metrics.fileDir;
+    tunnelMtuController.text = '${profile.tunnelMtu}';
+    packetFragmentPayloadController.text =
+        '${profile.packetFragmentPayloadBytes}';
     transportMode = profile.transport.mode;
+    networkRescueProfile = profile.networkRescue.profile;
     metricsEnabled = profile.metrics.enabled;
     metricsFileEnabled = profile.metrics.fileEnabled;
+    prestartFullProbe = profile.prestartFullProbe;
+    steadyStateQuickProbeEnabled = profile.steadyStateQuickProbeEnabled;
+    steadyStateBenchmarkEnabled = profile.steadyStateBenchmarkEnabled;
+    disableIpv6 = profile.disableIpv6;
+    tunnelMtu = profile.tunnelMtu;
+    packetFragmentPayloadBytes = profile.packetFragmentPayloadBytes;
+    disablePacketBatching = profile.disablePacketBatching;
     relays = profile.relays;
     servers = _normalizeServerPriorities(profile.servers);
     windowsApps = _normalizeWindowsApps(profile.windowsApps);
     profileAndroidApps = _normalizeWindowsApps(profile.androidApps);
     profileExtraFields = profile.extraFields;
     transportExtraFields = profile.transport.extraFields;
+    networkRescueExtraFields = profile.networkRescue.extraFields;
     metricsExtraFields = profile.metrics.extraFields;
     splitTunnelExtraFields = profile.splitTunnelExtraFields;
     splitTunnelMode = profile.splitTunnelMode;
@@ -435,10 +784,7 @@ class HomeViewModel extends ChangeNotifier {
   void _applyLaunchResult(LaunchResult result) {
     if (result.success) {
       _setRuntimeStarted(true);
-      final pidSuffix = result.processId == null
-          ? ''
-          : t('message.pid_suffix', {'pid': result.processId});
-      statusMessage = '${result.message}$pidSuffix';
+      statusMessage = result.message;
       errorMessage = null;
     } else {
       _setRuntimeStarted(false);

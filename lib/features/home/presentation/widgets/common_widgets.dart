@@ -202,6 +202,64 @@ class MissingFilesList extends StatelessWidget {
   }
 }
 
+class CollapsibleSection extends StatefulWidget {
+  const CollapsibleSection({
+    super.key,
+    required this.title,
+    required this.child,
+    required this.expandTooltip,
+    required this.collapseTooltip,
+    this.initiallyExpanded = false,
+  });
+
+  final String title;
+  final Widget child;
+  final String expandTooltip;
+  final String collapseTooltip;
+  final bool initiallyExpanded;
+
+  @override
+  State<CollapsibleSection> createState() => _CollapsibleSectionState();
+}
+
+class _CollapsibleSectionState extends State<CollapsibleSection> {
+  late bool _expanded = widget.initiallyExpanded;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Expanded(child: SectionTitle(widget.title)),
+            Tooltip(
+              message:
+                  _expanded ? widget.collapseTooltip : widget.expandTooltip,
+              child: IconButton(
+                onPressed: () {
+                  setState(() {
+                    _expanded = !_expanded;
+                  });
+                },
+                icon: Icon(
+                  _expanded
+                      ? Icons.keyboard_arrow_up_rounded
+                      : Icons.keyboard_arrow_down_rounded,
+                ),
+              ),
+            ),
+          ],
+        ),
+        if (_expanded) ...[
+          const SizedBox(height: 8),
+          SurfacePanel(child: widget.child),
+        ],
+      ],
+    );
+  }
+}
+
 class MessagePanel extends StatelessWidget {
   const MessagePanel({
     super.key,
@@ -257,12 +315,18 @@ class MaydayTextField extends StatelessWidget {
     required this.controller,
     this.helperText,
     this.maxLines = 1,
+    this.enabled,
+    this.keyboardType,
+    this.onChanged,
   });
 
   final String label;
   final TextEditingController controller;
   final String? helperText;
   final int maxLines;
+  final bool? enabled;
+  final TextInputType? keyboardType;
+  final ValueChanged<String>? onChanged;
 
   @override
   Widget build(BuildContext context) {
@@ -278,10 +342,72 @@ class MaydayTextField extends StatelessWidget {
         const SizedBox(height: 6),
         TextField(
           controller: controller,
+          enabled: enabled,
+          keyboardType: keyboardType,
+          onChanged: onChanged,
           maxLines: maxLines,
           style: textTheme.bodyLarge,
           cursorColor: MaydayColors.accent,
           decoration: InputDecoration(helperText: helperText),
+        ),
+      ],
+    );
+  }
+}
+
+class DropdownField<T> extends StatelessWidget {
+  const DropdownField({
+    super.key,
+    required this.label,
+    required this.selected,
+    required this.options,
+    required this.onChanged,
+  });
+
+  final String label;
+  final T selected;
+  final List<Segment<T>> options;
+  final ValueChanged<T>? onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final textTheme = Theme.of(context).textTheme;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label.toUpperCase(),
+          style: textTheme.labelMedium?.copyWith(color: MaydayColors.muted),
+        ),
+        const SizedBox(height: 6),
+        DropdownButtonFormField<T>(
+          key: ValueKey(selected),
+          initialValue: selected,
+          isExpanded: true,
+          dropdownColor: MaydayColors.surface,
+          borderRadius: BorderRadius.circular(MaydayRadii.medium),
+          icon: const Icon(Icons.keyboard_arrow_down_rounded),
+          style: textTheme.bodyLarge?.copyWith(color: MaydayColors.text),
+          decoration: const InputDecoration(),
+          onChanged: onChanged == null
+              ? null
+              : (value) {
+                  if (value != null) {
+                    onChanged!(value);
+                  }
+                },
+          items: [
+            for (final option in options)
+              DropdownMenuItem<T>(
+                value: option.value,
+                child: Text(
+                  option.label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+          ],
         ),
       ],
     );

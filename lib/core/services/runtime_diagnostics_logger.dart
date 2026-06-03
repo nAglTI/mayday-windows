@@ -73,9 +73,11 @@ class RuntimeDiagnosticsLogger {
         trimmed.startsWith('user_id:') ||
         trimmed.startsWith('addr:') ||
         trimmed.startsWith('ports:') ||
+        trimmed.startsWith('transport_ports:') ||
         trimmed.startsWith('- key:') ||
         trimmed.startsWith('- addr:') ||
-        trimmed.startsWith('- ports:')) {
+        trimmed.startsWith('- ports:') ||
+        trimmed.startsWith('- transport_ports:')) {
       final indentLength = line.length - trimmed.length;
       return '${' ' * indentLength}${trimmed.split(':').first}: <redacted>';
     }

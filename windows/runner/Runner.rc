@@ -13,6 +13,8 @@ LANGUAGE LANG_ENGLISH, SUBLANG_ENGLISH_US
 IDI_APP_ICON ICON "resources\\app_icon.ico"
 IDI_TRAY_OFF ICON "resources\\tray-off.ico"
 IDI_TRAY_ON ICON "resources\\tray-on.ico"
+IDI_TRAY_OFF_LIGHT ICON "resources\\tray-off-light.ico"
+IDI_TRAY_ON_LIGHT ICON "resources\\tray-on-light.ico"
 
 #ifdef APSTUDIO_INVOKED
 1 TEXTINCLUDE

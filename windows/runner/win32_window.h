@@ -55,6 +55,7 @@ class Win32Window {
   void AddTrayIcon();
   void RemoveTrayIcon();
   void UpdateTrayIcon();
+  static bool IsSystemUsingLightTheme();
   HICON LoadTrayIcon() const;
   void ShowFromTray();
   void ShowTrayMenu();

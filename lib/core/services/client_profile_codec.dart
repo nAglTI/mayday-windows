@@ -5,10 +5,20 @@ import 'package:yaml/yaml.dart';
 import '../l10n/app_texts.dart';
 import '../models/client_profile.dart';
 import '../models/metrics_config.dart';
+import '../models/network_rescue_config.dart';
 import '../models/relay_target.dart';
 import '../models/server_target.dart';
 import '../models/split_tunnel_mode.dart';
 import '../models/transport_config.dart';
+
+class ClientProfileContractException implements Exception {
+  const ClientProfileContractException(this.message);
+
+  final String message;
+
+  @override
+  String toString() => message;
+}
 
 class ClientProfileCodec {
   const ClientProfileCodec({AppTextCatalog? appTextCatalog})
@@ -25,13 +35,23 @@ class ClientProfileCodec {
     'tun_name',
     'dns',
     'server_failback_delay_sec',
+    'prestart_full_probe',
+    'steady_state_quick_probe_enabled',
+    'steady_state_benchmark_enabled',
+    'disable_ipv6',
+    'tunnel_mtu',
+    'packet_fragment_payload_bytes',
+    'disable_packet_batching',
+    'discovery_relays',
     'transport',
+    'network_rescue',
     'metrics',
     'relays',
     'servers',
     'split_tunnel',
   };
   static const _transportKeys = {'mode'};
+  static const _networkRescueKeys = {'enabled', 'profile'};
   static const _metricsKeys = {
     'enabled',
     'window_seconds',
@@ -42,7 +62,9 @@ class ClientProfileCodec {
     'id',
     'addr',
     'short_id',
+    'relay_key',
     'ports',
+    'transport_ports',
   };
   static const _serverKeys = {
     'id',
@@ -52,6 +74,7 @@ class ClientProfileCodec {
   static const _splitTunnelKeys = {
     'enabled',
     'mode',
+    'apps_mode',
     'apps',
     'apps_win',
     'apps_android',
@@ -59,12 +82,23 @@ class ClientProfileCodec {
 
   final AppTextCatalog _textCatalog;
 
-  ClientProfile parseRaw(
-    String rawConfig, {
-    String? currentProfileName,
-  }) {
-    final resolvedProfileName =
-        currentProfileName ?? _textCatalog.t('codec.imported_default_name');
+  ClientProfile parseRaw(String rawConfig) {
+    return _profileFromMap(_configMapFromRaw(rawConfig));
+  }
+
+  ClientProfile parseCurrentContractRaw(String rawConfig) {
+    final config = _configMapFromRaw(rawConfig);
+    _validateCurrentContract(config);
+    return _profileFromMap(config);
+  }
+
+  void validateCurrentContractRaw(String rawConfig) {
+    final config = _configMapFromRaw(rawConfig);
+    _validateCurrentContract(config);
+    _profileFromMap(config);
+  }
+
+  Map<String, Object?> _configMapFromRaw(String rawConfig) {
     final trimmed = rawConfig.trim();
     if (trimmed.isEmpty) {
       throw FormatException(_textCatalog.t('codec.empty'));
@@ -78,7 +112,7 @@ class ClientProfileCodec {
       throw FormatException(_textCatalog.t('codec.unsupported_yaml'));
     }
 
-    return _profileFromMap(plainConfig, resolvedProfileName);
+    return plainConfig;
   }
 
   String encodeYaml(ClientProfile profile) {
@@ -87,13 +121,20 @@ class ClientProfileCodec {
     final userId = int.parse(profile.userId.trim());
     final root = <String, Object?>{
       'user_id': userId,
-      'tun_name': _cleanOrDefault(profile.tunName, _defaultTunName),
-      'dns': _cleanDns(profile.dnsServers),
       'server_failback_delay_sec': profile.serverFailbackDelaySec,
       'transport': _encodeTransport(profile.transport),
-      'metrics': _encodeMetrics(profile.metrics),
-      'relays': _encodeRelays(profile.relays),
+      'network_rescue': _encodeNetworkRescue(profile.networkRescue),
+      'prestart_full_probe': profile.prestartFullProbe,
+      'steady_state_quick_probe_enabled': profile.steadyStateQuickProbeEnabled,
+      'steady_state_benchmark_enabled': profile.steadyStateBenchmarkEnabled,
+      'disable_ipv6': profile.disableIpv6,
+      'tunnel_mtu': profile.tunnelMtu,
+      'packet_fragment_payload_bytes': profile.packetFragmentPayloadBytes,
+      'disable_packet_batching': profile.disablePacketBatching,
+      'discovery_relays': _encodeRelays(profile.relays),
       'servers': _encodeServers(profile.servers),
+      if (_shouldEncodeMetrics(profile.metrics))
+        'metrics': _encodeMetrics(profile.metrics),
       'split_tunnel': _encodeSplitTunnel(profile),
     };
 
@@ -117,6 +158,14 @@ class ClientProfileCodec {
     if (profile.metrics.windowSeconds < 1) {
       throw FormatException(_textCatalog.t('codec.metrics_window_invalid'));
     }
+    if (!_validTunnelMtu(profile.tunnelMtu, disableIpv6: profile.disableIpv6)) {
+      throw FormatException(_textCatalog.t('codec.tunnel_mtu_invalid'));
+    }
+    if (!_validPacketFragmentPayload(profile.packetFragmentPayloadBytes)) {
+      throw FormatException(
+        _textCatalog.t('codec.packet_fragment_payload_invalid'),
+      );
+    }
     if (profile.relays.isEmpty) {
       throw FormatException(_textCatalog.t('codec.relay_required'));
     }
@@ -132,8 +181,14 @@ class ClientProfileCodec {
       if (!relayShortIds.add(relay.shortId)) {
         throw FormatException(_textCatalog.t('codec.relay_short_id_unique'));
       }
+      if (!_serverKeyPattern.hasMatch(relay.relayKey.trim())) {
+        throw FormatException(_textCatalog.t('codec.relay_key_hex'));
+      }
 
-      final ports = _resolveRelayPorts(relay);
+      final transportPorts = _encodeTransportPorts(relay.transportPorts);
+      final ports = _normalizeIntList(
+        transportPorts.values.expand((ports) => ports),
+      );
       if (ports.isEmpty) {
         throw FormatException(_textCatalog.t('codec.relay_ports_required'));
       }
@@ -168,10 +223,84 @@ class ClientProfileCodec {
     }
   }
 
-  ClientProfile _profileFromMap(
-    Map<String, Object?> map,
-    String currentProfileName,
-  ) {
+  void _validateCurrentContract(Map<String, Object?> map) {
+    if (!map.containsKey('discovery_relays')) {
+      if (map.containsKey('relays')) {
+        throw ClientProfileContractException(
+          _textCatalog.t('codec.contract_legacy_relays'),
+        );
+      }
+      throw ClientProfileContractException(
+        _textCatalog.t('codec.contract_discovery_relays_required'),
+      );
+    }
+
+    if (!map.containsKey('servers')) {
+      throw ClientProfileContractException(
+        _textCatalog.t('codec.contract_servers_required'),
+      );
+    }
+
+    final splitTunnel = _toMap(map['split_tunnel']);
+    if (!map.containsKey('split_tunnel') ||
+        !splitTunnel.containsKey('apps_mode')) {
+      throw ClientProfileContractException(
+        _textCatalog.t('codec.contract_apps_mode_required'),
+      );
+    }
+    final splitTunnelEnabled = _readBool(splitTunnel['enabled']);
+    if (splitTunnelEnabled && !splitTunnel.containsKey('apps_win')) {
+      throw ClientProfileContractException(
+        _textCatalog.t('codec.contract_apps_win_required'),
+      );
+    }
+    if (splitTunnelEnabled && !splitTunnel.containsKey('apps_android')) {
+      throw ClientProfileContractException(
+        _textCatalog.t(
+          'codec.contract_current_field_required',
+          {'field': 'split_tunnel.apps_android'},
+        ),
+      );
+    }
+
+    final transport = _toMap(map['transport']);
+    if (!TransportMode.supportsWireValue(transport['mode']?.toString())) {
+      throw ClientProfileContractException(
+        _textCatalog.t('codec.contract_transport_mode_unsupported'),
+      );
+    }
+
+    final networkRescue = _toMap(map['network_rescue']);
+    if (map.containsKey('network_rescue') &&
+        !NetworkRescueProfile.supportsWireValue(
+          networkRescue['profile']?.toString(),
+        )) {
+      throw ClientProfileContractException(
+        _textCatalog.t('codec.contract_network_rescue_profile_unsupported'),
+      );
+    }
+
+    final rawRelays = map['discovery_relays'];
+    if (rawRelays is Iterable) {
+      for (final item in rawRelays) {
+        final relay = _toMap(item);
+        final relayKey = relay['relay_key']?.toString().trim() ?? '';
+        if (!_serverKeyPattern.hasMatch(relayKey)) {
+          throw ClientProfileContractException(
+            _textCatalog.t('codec.contract_relay_key_required'),
+          );
+        }
+        final transportPorts = _readTransportPorts(relay['transport_ports']);
+        if (relay.containsKey('ports') || transportPorts.isEmpty) {
+          throw ClientProfileContractException(
+            _textCatalog.t('codec.contract_transport_ports_required'),
+          );
+        }
+      }
+    }
+  }
+
+  ClientProfile _profileFromMap(Map<String, Object?> map) {
     final userId = map['user_id']?.toString().trim() ?? '';
     if (userId.isEmpty) {
       throw FormatException(_textCatalog.t('codec.user_id_required'));
@@ -180,13 +309,12 @@ class ClientProfileCodec {
     final splitTunnel = _toMap(map['split_tunnel']);
     final splitEnabled = _readBool(splitTunnel['enabled']);
     final splitMode = SplitTunnelMode.fromWireValue(
-      splitTunnel['mode']?.toString(),
+      (splitTunnel['apps_mode'] ?? splitTunnel['mode'])?.toString(),
       enabled: splitEnabled,
     );
 
     final profile = ClientProfile(
-      displayName: currentProfileName,
-      relays: _parseRelays(map['relays']),
+      relays: _parseDiscoveryRelays(map),
       userId: userId,
       servers: _parseServers(map['servers']),
       tunName: _cleanOrDefault(
@@ -195,8 +323,19 @@ class ClientProfileCodec {
       ),
       dnsServers: _parseDns(map['dns']),
       transport: _parseTransport(map['transport']),
+      networkRescue: _parseNetworkRescue(map['network_rescue']),
       metrics: _parseMetrics(map['metrics']),
       serverFailbackDelaySec: _parseInt(map['server_failback_delay_sec']) ?? 60,
+      prestartFullProbe: _readBool(map['prestart_full_probe']),
+      steadyStateQuickProbeEnabled:
+          _readBool(map['steady_state_quick_probe_enabled']),
+      steadyStateBenchmarkEnabled:
+          _readBool(map['steady_state_benchmark_enabled']),
+      disableIpv6: _readBool(map['disable_ipv6']),
+      tunnelMtu: _parseInt(map['tunnel_mtu']) ?? 1280,
+      packetFragmentPayloadBytes:
+          _parseInt(map['packet_fragment_payload_bytes']) ?? 0,
+      disablePacketBatching: _readBool(map['disable_packet_batching']),
       splitTunnelMode: splitMode,
       windowsApps: _windowsAppsFromSplitTunnel(splitTunnel),
       androidApps: _readStringList(splitTunnel['apps_android']),
@@ -219,6 +358,19 @@ class ClientProfileCodec {
     );
   }
 
+  NetworkRescueConfig _parseNetworkRescue(dynamic rawNetworkRescue) {
+    final networkRescue = _toMap(rawNetworkRescue);
+    final explicitProfile = networkRescue['profile']?.toString();
+    final enabled = _readBool(networkRescue['enabled']);
+    final profile = explicitProfile == null && enabled
+        ? NetworkRescueProfile.stable
+        : NetworkRescueProfile.fromWireValue(explicitProfile);
+    return NetworkRescueConfig(
+      profile: profile,
+      extraFields: _unknownFields(networkRescue, _networkRescueKeys),
+    );
+  }
+
   MetricsConfig _parseMetrics(dynamic rawMetrics) {
     final metrics = _toMap(rawMetrics);
     return MetricsConfig(
@@ -230,7 +382,8 @@ class ClientProfileCodec {
     );
   }
 
-  List<RelayTarget> _parseRelays(dynamic rawRelays) {
+  List<RelayTarget> _parseDiscoveryRelays(Map<String, Object?> map) {
+    final rawRelays = map['discovery_relays'];
     if (rawRelays is! Iterable) {
       return const [];
     }
@@ -246,7 +399,8 @@ class ClientProfileCodec {
           ),
           addr: relayMap['addr']?.toString().trim() ?? '',
           shortId: _parseInt(relayMap['short_id']) ?? index + 1,
-          ports: _readIntList(relayMap['ports']),
+          relayKey: relayMap['relay_key']?.toString().trim() ?? '',
+          transportPorts: _readTransportPorts(relayMap['transport_ports']),
           extraFields: _unknownFields(relayMap, _relayKeys),
         ),
       );
@@ -296,6 +450,16 @@ class ClientProfileCodec {
     };
   }
 
+  Map<String, Object?> _encodeNetworkRescue(
+    NetworkRescueConfig networkRescue,
+  ) {
+    return {
+      'enabled': networkRescue.enabled,
+      'profile': networkRescue.profile.wireValue,
+      ..._unknownFields(networkRescue.extraFields, _networkRescueKeys),
+    };
+  }
+
   Map<String, Object?> _encodeMetrics(MetricsConfig metrics) {
     return {
       'enabled': metrics.enabled,
@@ -306,6 +470,14 @@ class ClientProfileCodec {
     };
   }
 
+  bool _shouldEncodeMetrics(MetricsConfig metrics) {
+    return metrics.enabled != true ||
+        metrics.windowSeconds != 600 ||
+        metrics.fileEnabled != false ||
+        metrics.fileDir.trim().isNotEmpty ||
+        metrics.extraFields.isNotEmpty;
+  }
+
   List<Map<String, Object?>> _encodeRelays(List<RelayTarget> relays) {
     return [
       for (var index = 0; index < relays.length; index += 1)
@@ -313,7 +485,10 @@ class ClientProfileCodec {
           'id': _cleanOrDefault(relays[index].id, 'relay-${index + 1}'),
           'addr': relays[index].addr.trim(),
           'short_id': relays[index].shortId,
-          'ports': _resolveRelayPorts(relays[index]),
+          'relay_key': relays[index].relayKey.trim(),
+          'transport_ports': _encodeTransportPorts(
+            relays[index].transportPorts,
+          ),
           ..._unknownFields(relays[index].extraFields, _relayKeys),
         },
     ];
@@ -334,7 +509,7 @@ class ClientProfileCodec {
   Map<String, Object?> _encodeSplitTunnel(ClientProfile profile) {
     return {
       'enabled': profile.splitTunnelMode != SplitTunnelMode.disabled,
-      'mode': profile.splitTunnelMode.wireValue ?? 'whitelist',
+      'apps_mode': profile.splitTunnelMode.wireValue ?? 'whitelist',
       'apps_win': _normalizeStringList(profile.windowsApps),
       'apps_android': _normalizeStringList(profile.androidApps),
       ..._unknownFields(profile.splitTunnelExtraFields, _splitTunnelKeys),
@@ -349,8 +524,33 @@ class ClientProfileCodec {
     return _readStringList(splitTunnel['apps']);
   }
 
-  List<int> _resolveRelayPorts(RelayTarget relay) {
-    return _normalizeIntList(relay.ports);
+  Map<String, List<int>> _readTransportPorts(dynamic rawValue) {
+    final map = _toMap(rawValue);
+    if (map.isEmpty) {
+      return const {};
+    }
+
+    final result = <String, List<int>>{};
+    for (final entry in map.entries) {
+      final protocol = entry.key.trim();
+      final ports = _readIntList(entry.value);
+      if (protocol.isEmpty || ports.isEmpty) {
+        continue;
+      }
+      result[protocol] = ports;
+    }
+    return result;
+  }
+
+  Map<String, List<int>> _encodeTransportPorts(
+    Map<String, List<int>> transportPorts,
+  ) {
+    return {
+      for (final entry in transportPorts.entries)
+        if (entry.key.trim().isNotEmpty &&
+            _normalizeIntList(entry.value).isNotEmpty)
+          entry.key.trim(): _normalizeIntList(entry.value),
+    };
   }
 
   List<String> _readStringList(dynamic rawValue) {
@@ -409,6 +609,15 @@ class ClientProfileCodec {
     return int.tryParse(rawValue?.toString().trim() ?? '');
   }
 
+  bool _validTunnelMtu(int value, {required bool disableIpv6}) {
+    final min = disableIpv6 ? 100 : 1280;
+    return value >= min && value <= 1500;
+  }
+
+  bool _validPacketFragmentPayload(int value) {
+    return value == 0 || (value >= 64 && value <= 65536);
+  }
+
   Map<String, Object?> _toMap(dynamic rawValue) {
     final plain = _plainValue(rawValue);
     if (plain is Map<String, Object?>) {
@@ -456,11 +665,6 @@ class ClientProfileCodec {
   String _cleanOrDefault(String value, String fallback) {
     final trimmed = value.trim();
     return trimmed.isEmpty ? fallback : trimmed;
-  }
-
-  String _cleanDns(List<String> dnsServers) {
-    final dns = _normalizeStringList(dnsServers).join(', ');
-    return dns.isEmpty ? _defaultDns : dns;
   }
 
   String _writeYaml(Map<String, Object?> map) {

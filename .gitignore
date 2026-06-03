@@ -64,11 +64,15 @@ app.*.map.json
 
 # Internal notes and architecture drafts
 /docs/
+!/docs/
+/docs/*
+!/docs/windows_vpn_detector_poc.cpp
 *.md
 !README.md
 !README.ru.md
 !LICENSE.md
 !CHANGELOG.md
+!/docs/release-notes-*.md
 !/release-notes/
 !/release-notes/*.md
 /release-notes/RULES.md

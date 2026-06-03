@@ -3,7 +3,18 @@ import 'dart:io';
 class AppAutostartService {
   const AppAutostartService();
 
-  static const taskName = 'Mayday';
+  static const String _buildVariant = String.fromEnvironment(
+    'MAYDAY_BUILD_VARIANT',
+    defaultValue: 'local',
+  );
+
+  static String get taskName {
+    final normalized = _buildVariant.trim().toLowerCase();
+    if (normalized.isEmpty || normalized == 'prod') {
+      return 'Mayday';
+    }
+    return 'Mayday-$normalized';
+  }
 
   Future<bool> isEnabled() async {
     if (!Platform.isWindows) {

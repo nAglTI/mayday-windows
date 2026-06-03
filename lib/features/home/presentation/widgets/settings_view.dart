@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../../../app/mayday_theme.dart';
 import '../../../../core/l10n/app_texts.dart';
+import '../../../../core/models/network_rescue_config.dart';
 import '../../../../core/models/relay_target.dart';
 import '../../../../core/models/transport_config.dart';
 import '../home_view_model.dart';
@@ -33,7 +34,6 @@ class SettingsView extends StatelessWidget {
         SettingsActions(
           textCatalog: textCatalog,
           enabled: !viewModel.isBusy,
-          onImportConfig: viewModel.importConfig,
           onImportKey: onImportKey,
         ),
         const SizedBox(height: 12),
@@ -55,22 +55,15 @@ class SettingsView extends StatelessWidget {
         SectionTitle(textCatalog.t('section.profile')),
         const SizedBox(height: 8),
         SurfacePanel(
-          child: Column(
-            children: [
-              MaydayTextField(
-                label: textCatalog.t('label.profile'),
-                controller: viewModel.displayNameController,
-              ),
-              const SizedBox(height: 14),
-              MaydayTextField(
-                label: textCatalog.t('label.user_id'),
-                controller: viewModel.userIdController,
-              ),
-            ],
+          child: StatRow(
+            label: textCatalog.t('label.user_id'),
+            value: profile.userId.trim().isEmpty
+                ? textCatalog.t('status.not_set')
+                : profile.userId.trim(),
           ),
         ),
         const SizedBox(height: 18),
-        SettingsCollapsibleSection(
+        CollapsibleSection(
           title: textCatalog.t('section.network_transport'),
           initiallyExpanded: false,
           expandTooltip: textCatalog.t('tooltip.expand_section'),
@@ -88,10 +81,10 @@ class SettingsView extends StatelessWidget {
                 helperText: textCatalog.t('label.dns_helper'),
               ),
               const SizedBox(height: 14),
-              SegmentedField<TransportMode>(
+              DropdownField<TransportMode>(
                 label: textCatalog.t('label.transport_mode'),
                 selected: viewModel.transportMode,
-                segments: [
+                options: [
                   Segment(
                     value: TransportMode.auto,
                     label: textCatalog.t('label.transport_auto'),
@@ -103,6 +96,18 @@ class SettingsView extends StatelessWidget {
                   Segment(
                     value: TransportMode.utp,
                     label: textCatalog.t('label.transport_utp'),
+                  ),
+                  Segment(
+                    value: TransportMode.ws,
+                    label: textCatalog.t('label.transport_ws'),
+                  ),
+                  Segment(
+                    value: TransportMode.https,
+                    label: textCatalog.t('label.transport_https'),
+                  ),
+                  Segment(
+                    value: TransportMode.rawUdp,
+                    label: textCatalog.t('label.transport_raw_udp'),
                   ),
                 ],
                 onChanged: viewModel.isBusy ? null : viewModel.setTransportMode,
@@ -117,7 +122,18 @@ class SettingsView extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 18),
-        SettingsCollapsibleSection(
+        CollapsibleSection(
+          title: textCatalog.t('section.runtime_options'),
+          initiallyExpanded: false,
+          expandTooltip: textCatalog.t('tooltip.expand_section'),
+          collapseTooltip: textCatalog.t('tooltip.collapse_section'),
+          child: RuntimeOptionsPanel(
+            viewModel: viewModel,
+            textCatalog: textCatalog,
+          ),
+        ),
+        const SizedBox(height: 18),
+        CollapsibleSection(
           title: textCatalog.t('section.metrics'),
           initiallyExpanded: false,
           expandTooltip: textCatalog.t('tooltip.expand_section'),
@@ -192,7 +208,7 @@ class SettingsView extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 18),
-        SettingsCollapsibleSection(
+        CollapsibleSection(
           title: textCatalog.t('section.diagnostics'),
           initiallyExpanded: false,
           expandTooltip: textCatalog.t('tooltip.expand_section'),
@@ -244,6 +260,194 @@ class SettingsView extends StatelessWidget {
         ),
       ],
     );
+  }
+}
+
+class RuntimeOptionsPanel extends StatelessWidget {
+  const RuntimeOptionsPanel({
+    super.key,
+    required this.viewModel,
+    required this.textCatalog,
+  });
+
+  final HomeViewModel viewModel;
+  final AppTextCatalog textCatalog;
+
+  @override
+  Widget build(BuildContext context) {
+    final enabled = !viewModel.isBusy;
+
+    return Column(
+      children: [
+        DropdownField<NetworkRescueProfile>(
+          label: textCatalog.t('label.network_rescue'),
+          selected: viewModel.networkRescueProfile,
+          options: [
+            Segment(
+              value: NetworkRescueProfile.off,
+              label: textCatalog.t('label.network_rescue_off'),
+            ),
+            Segment(
+              value: NetworkRescueProfile.stable,
+              label: textCatalog.t('label.network_rescue_stable'),
+            ),
+            Segment(
+              value: NetworkRescueProfile.extreme,
+              label: textCatalog.t('label.network_rescue_extreme'),
+            ),
+          ],
+          onChanged: enabled ? viewModel.setNetworkRescueProfile : null,
+        ),
+        const SizedBox(height: 6),
+        Text(
+          textCatalog.t('label.network_rescue_helper'),
+          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: MaydayColors.muted,
+              ),
+        ),
+        const Hairline(),
+        SwitchListTile(
+          contentPadding: EdgeInsets.zero,
+          secondary: const Icon(Icons.travel_explore_outlined),
+          title: Text(textCatalog.t('label.prestart_full_probe')),
+          value: viewModel.prestartFullProbe,
+          onChanged: enabled ? viewModel.setPrestartFullProbe : null,
+        ),
+        const Hairline(),
+        SwitchListTile(
+          contentPadding: EdgeInsets.zero,
+          secondary: const Icon(Icons.speed_outlined),
+          title: Text(textCatalog.t('label.steady_quick_probe')),
+          value: viewModel.steadyStateQuickProbeEnabled,
+          onChanged: enabled ? viewModel.setSteadyStateQuickProbeEnabled : null,
+        ),
+        const Hairline(),
+        SwitchListTile(
+          contentPadding: EdgeInsets.zero,
+          secondary: const Icon(Icons.query_stats_outlined),
+          title: Text(textCatalog.t('label.steady_benchmark')),
+          value: viewModel.steadyStateBenchmarkEnabled,
+          onChanged: enabled ? viewModel.setSteadyStateBenchmarkEnabled : null,
+        ),
+        const Hairline(),
+        SwitchListTile(
+          contentPadding: EdgeInsets.zero,
+          secondary: const Icon(Icons.public_off_outlined),
+          title: Text(textCatalog.t('label.disable_ipv6')),
+          value: viewModel.disableIpv6,
+          onChanged: enabled ? viewModel.setDisableIpv6 : null,
+        ),
+        const Hairline(),
+        MaydayTextField(
+          label: textCatalog.t('label.tunnel_mtu'),
+          controller: viewModel.tunnelMtuController,
+          helperText: textCatalog.t('label.tunnel_mtu_helper'),
+          enabled: enabled,
+          keyboardType: TextInputType.number,
+          onChanged: viewModel.setTunnelMtuFromText,
+        ),
+        const SizedBox(height: 14),
+        PacketFragmentPayloadField(
+          textCatalog: textCatalog,
+          enabled: enabled,
+          controller: viewModel.packetFragmentPayloadController,
+          value: viewModel.packetFragmentPayloadBytes,
+          onTextChanged: viewModel.setPacketFragmentPayloadFromText,
+          onPresetChanged: viewModel.setPacketFragmentPayloadBytes,
+        ),
+        const SizedBox(height: 10),
+        SwitchListTile(
+          contentPadding: EdgeInsets.zero,
+          secondary: const Icon(Icons.layers_clear_outlined),
+          title: Text(textCatalog.t('label.disable_packet_batching')),
+          value: viewModel.disablePacketBatching,
+          onChanged: enabled ? viewModel.setDisablePacketBatching : null,
+        ),
+      ],
+    );
+  }
+}
+
+class PacketFragmentPayloadField extends StatelessWidget {
+  const PacketFragmentPayloadField({
+    super.key,
+    required this.textCatalog,
+    required this.enabled,
+    required this.controller,
+    required this.value,
+    required this.onTextChanged,
+    required this.onPresetChanged,
+  });
+
+  static const _marks = [0, 64, 100, 256, 512, 1200, 4096, 16384, 65536];
+
+  final AppTextCatalog textCatalog;
+  final bool enabled;
+  final TextEditingController controller;
+  final int value;
+  final ValueChanged<String> onTextChanged;
+  final ValueChanged<int> onPresetChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final currentIndex = _nearestMarkIndex(value);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        MaydayTextField(
+          label: textCatalog.t('label.packet_fragment_payload'),
+          controller: controller,
+          helperText: textCatalog.t('label.packet_fragment_payload_helper'),
+          enabled: enabled,
+          keyboardType: TextInputType.number,
+          onChanged: onTextChanged,
+        ),
+        const SizedBox(height: 8),
+        Slider(
+          value: currentIndex.toDouble(),
+          min: 0,
+          max: (_marks.length - 1).toDouble(),
+          divisions: _marks.length - 1,
+          label: '${_marks[currentIndex]}',
+          onChanged: enabled
+              ? (rawIndex) {
+                  onPresetChanged(_marks[rawIndex.round()]);
+                }
+              : null,
+        ),
+        Row(
+          children: [
+            Text(
+              textCatalog.t('label.packet_fast'),
+              style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                    color: MaydayColors.muted,
+                  ),
+            ),
+            const Spacer(),
+            Text(
+              '65536',
+              style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                    color: MaydayColors.muted,
+                  ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  int _nearestMarkIndex(int value) {
+    var bestIndex = 0;
+    var bestDistance = (value - _marks.first).abs();
+    for (var index = 1; index < _marks.length; index += 1) {
+      final distance = (value - _marks[index]).abs();
+      if (distance < bestDistance) {
+        bestIndex = index;
+        bestDistance = distance;
+      }
+    }
+    return bestIndex;
   }
 }
 
@@ -347,100 +551,27 @@ class _RelayNameTile extends StatelessWidget {
   }
 }
 
-class SettingsCollapsibleSection extends StatefulWidget {
-  const SettingsCollapsibleSection({
-    super.key,
-    required this.title,
-    required this.child,
-    required this.expandTooltip,
-    required this.collapseTooltip,
-    this.initiallyExpanded = false,
-  });
-
-  final String title;
-  final Widget child;
-  final String expandTooltip;
-  final String collapseTooltip;
-  final bool initiallyExpanded;
-
-  @override
-  State<SettingsCollapsibleSection> createState() =>
-      _SettingsCollapsibleSectionState();
-}
-
-class _SettingsCollapsibleSectionState
-    extends State<SettingsCollapsibleSection> {
-  late bool _expanded = widget.initiallyExpanded;
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          children: [
-            Expanded(child: SectionTitle(widget.title)),
-            Tooltip(
-              message:
-                  _expanded ? widget.collapseTooltip : widget.expandTooltip,
-              child: IconButton(
-                onPressed: () {
-                  setState(() {
-                    _expanded = !_expanded;
-                  });
-                },
-                icon: Icon(
-                  _expanded
-                      ? Icons.keyboard_arrow_up_rounded
-                      : Icons.keyboard_arrow_down_rounded,
-                ),
-              ),
-            ),
-          ],
-        ),
-        if (_expanded) ...[
-          const SizedBox(height: 8),
-          SurfacePanel(child: widget.child),
-        ],
-      ],
-    );
-  }
-}
-
 class SettingsActions extends StatelessWidget {
   const SettingsActions({
     super.key,
     required this.textCatalog,
     required this.enabled,
-    required this.onImportConfig,
     required this.onImportKey,
   });
 
   final AppTextCatalog textCatalog;
   final bool enabled;
-  final VoidCallback onImportConfig;
   final VoidCallback onImportKey;
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      children: [
-        Expanded(
-          child: OutlinedButton.icon(
-            onPressed: enabled ? onImportConfig : null,
-            icon: const Icon(Icons.upload_file_outlined),
-            label: ButtonLabel(textCatalog.t('button.import_config')),
-          ),
-        ),
-        const SizedBox(width: 10),
-        Expanded(
-          child: OutlinedButton.icon(
-            onPressed: enabled ? onImportKey : null,
-            icon: const Icon(Icons.key_outlined),
-            label: ButtonLabel(textCatalog.t('button.import_key')),
-          ),
-        ),
-      ],
+    return SizedBox(
+      width: double.infinity,
+      child: OutlinedButton.icon(
+        onPressed: enabled ? onImportKey : null,
+        icon: const Icon(Icons.key_outlined),
+        label: ButtonLabel(textCatalog.t('button.import_key')),
+      ),
     );
   }
 }
