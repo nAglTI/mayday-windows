@@ -32,6 +32,19 @@ class BadAppFinding {
     );
   }
 
+  Map<String, Object?> toJson() {
+    return {
+      'category': category,
+      'name': name,
+      'path': path,
+      'publisher': publisher,
+      'version': version,
+      'status': status,
+      'state': state,
+      'matchedKeywords': matchedKeywords,
+    };
+  }
+
   String get title {
     final trimmedName = name.trim();
     if (trimmedName.isNotEmpty) {

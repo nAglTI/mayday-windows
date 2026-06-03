@@ -17,6 +17,51 @@ class BadAppScannerService {
     'alice',
     'алиса',
     'alisa',
+    'vkontakte',
+    'вконтакте',
+    'vk messenger',
+    'vk music',
+    'vk video',
+    'vkvideo',
+    'mail.ru',
+    'mailru',
+    'mytracker',
+    'odnoklassniki',
+    'одноклассники',
+    'ok.ru',
+    'max messenger',
+    'max.ru',
+    't-bank',
+    'tbank',
+    'tinkoff',
+    'тинькофф',
+    'т-банк',
+    'sber',
+    'сбер',
+    'sberbank',
+    'сбербанк',
+    'vtb',
+    'втб',
+    'alfa-bank',
+    'alfabank',
+    'альфа-банк',
+    'альфабанк',
+    'megamarket',
+    'мегамаркет',
+    'samokat',
+    'самокат',
+    'avito',
+    'авито',
+    'ozon',
+    'озон',
+    'wildberries',
+    'вайлдберриз',
+    'rutube',
+    'рутуб',
+    '2gis',
+    '2гис',
+    'kinopoisk',
+    'кинопоиск'
   ];
 
   final Duration _timeout;
@@ -198,7 +243,8 @@ $keywordJsonBase64 = '''
         "'$keywordJsonBase64'\r\n"
         r'''
 $keywordJson = $utf8.GetString([Convert]::FromBase64String($keywordJsonBase64))
-$keywords = @(ConvertFrom-Json -InputObject $keywordJson)
+$decodedKeywords = ConvertFrom-Json -InputObject $keywordJson
+$keywords = @(foreach ($keyword in $decodedKeywords) { [string]$keyword })
 $escaped = @($keywords | ForEach-Object { [regex]::Escape([string]$_) })
 $rx = $escaped -join '|'
 $findings = New-Object System.Collections.Generic.List[object]
@@ -348,32 +394,15 @@ function Scan-ExecutableRoot {
   if ((Normalize-Text $Root).Length -eq 0) { return }
   if (-not (Test-Path -LiteralPath $Root -PathType Container)) { return }
 
-  $rootMatches = @(Get-KeywordMatches -Values @($Root)).Count -gt 0
-  if ($rootMatches) {
-    Get-ChildItem `
-        -LiteralPath $Root `
-        -Filter '*.exe' `
-        -File `
-        -Recurse `
-        -Depth $MaxDepth `
-        -ErrorAction SilentlyContinue |
-      Select-Object -First $MaxFiles |
-      ForEach-Object { Add-ExecutableFile -FilePath $_ }
-    return
-  }
-
-  foreach ($keyword in $keywords) {
-    $pattern = "*$keyword*.exe"
-    Get-ChildItem `
-        -LiteralPath $Root `
-        -Filter $pattern `
-        -File `
-        -Recurse `
-        -Depth $MaxDepth `
-        -ErrorAction SilentlyContinue |
-      Select-Object -First $MaxFiles |
-      ForEach-Object { Add-ExecutableFile -FilePath $_ }
-  }
+  Get-ChildItem `
+      -LiteralPath $Root `
+      -Filter '*.exe' `
+      -File `
+      -Recurse `
+      -Depth $MaxDepth `
+      -ErrorAction SilentlyContinue |
+    Select-Object -First $MaxFiles |
+    ForEach-Object { Add-ExecutableFile -FilePath $_ }
 }
 
 function Add-KeywordChildRoots {
@@ -406,6 +435,13 @@ $uninstallRoots = @(
 
 $installedPrograms = @(Get-ItemProperty -Path $uninstallRoots -ErrorAction SilentlyContinue)
 foreach ($program in $installedPrograms) {
+  $programMatches = @(Get-KeywordMatches -Values @(
+    $program.DisplayName,
+    $program.InstallLocation,
+    $program.Publisher,
+    $program.DisplayVersion
+  )).Count -gt 0
+
   Add-Finding `
     -Category 'installed_program' `
     -Name $program.DisplayName `
@@ -415,24 +451,26 @@ foreach ($program in $installedPrograms) {
     -Status '' `
     -State ''
 
-  Add-ScanRoot $program.InstallLocation
+  if ($programMatches) {
+    Add-ScanRoot $program.InstallLocation
+  }
 
   $displayIconExe = Resolve-DisplayIconExecutable $program.DisplayIcon
   if ($displayIconExe.Length -gt 0) {
     Add-ExecutableFile -FilePath $displayIconExe
-    Add-ScanRoot (Split-Path -LiteralPath $displayIconExe -Parent)
+    if ($programMatches -or @(Get-KeywordMatches -Values @($displayIconExe)).Count -gt 0) {
+      Add-ScanRoot (Split-Path -LiteralPath $displayIconExe -Parent)
+    }
   }
 }
 
 foreach ($root in @($env:ProgramFiles, ${env:ProgramFiles(x86)})) {
-  Add-ScanRoot $root
   Add-KeywordChildRoots $root
 }
 
 foreach ($baseRoot in @($env:LOCALAPPDATA, $env:APPDATA)) {
   if ((Normalize-Text $baseRoot).Length -eq 0) { continue }
   $programsRoot = Join-Path $baseRoot 'Programs'
-  Add-ScanRoot $programsRoot
   Add-KeywordChildRoots $programsRoot
 
   foreach ($keyword in $keywords) {

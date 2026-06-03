@@ -1,9 +1,11 @@
 ﻿import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../../app/mayday_theme.dart';
 import '../../../core/l10n/app_texts.dart';
+import '../../../core/models/app_update_info.dart';
 import '../../../core/models/running_windows_app.dart';
 import '../../../core/models/bad_app_finding.dart';
 import '../application/client_controller.dart';
@@ -11,6 +13,8 @@ import 'home_view_model.dart';
 import 'widgets/home_chrome.dart';
 import 'widgets/settings_view.dart';
 import 'widgets/connection_view.dart';
+
+enum _PreflightRiskAction { acceptRisk, runScan }
 
 class HomePage extends StatefulWidget {
   const HomePage({
@@ -31,6 +35,10 @@ class HomePage extends StatefulWidget {
 }
 
 class _HomePageState extends State<HomePage> {
+  static const _debugShowPreflightDialogOnStart = bool.fromEnvironment(
+    'MAYDAY_DEBUG_SHOW_PREFLIGHT_DIALOG_ON_START',
+  );
+
   late final HomeViewModel _viewModel = HomeViewModel(
     controller: widget.controller,
     textCatalog: widget.textCatalog,
@@ -40,6 +48,14 @@ class _HomePageState extends State<HomePage> {
   void initState() {
     super.initState();
     _viewModel.bootstrap();
+    if (_debugShowPreflightDialogOnStart) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) {
+          return;
+        }
+        unawaited(_showPreflightRiskDialog());
+      });
+    }
   }
 
   @override
@@ -90,6 +106,18 @@ class _HomePageState extends State<HomePage> {
                             onReload:
                                 _viewModel.isBusy ? null : _viewModel.bootstrap,
                           ),
+                          if (_viewModel.shouldShowUpdateBanner &&
+                              _viewModel.availableUpdate != null) ...[
+                            const SizedBox(height: 12),
+                            _UpdateBanner(
+                              update: _viewModel.availableUpdate!,
+                              textCatalog: widget.textCatalog,
+                              onOpen: () {
+                                unawaited(_viewModel.openAvailableUpdate());
+                              },
+                              onDismiss: _viewModel.dismissAvailableUpdate,
+                            ),
+                          ],
                           const SizedBox(height: 12),
                           ScreenTabs(
                             selected: _viewModel.selectedSection,
@@ -113,6 +141,9 @@ class _HomePageState extends State<HomePage> {
                               },
                               onPreflightScan: () {
                                 unawaited(_runPreflightScan());
+                              },
+                              onOpenPreflightResults: () {
+                                unawaited(_openPreflightResults());
                               },
                               onOpenSettings: () {
                                 _viewModel.setSelectedSection(
@@ -176,27 +207,40 @@ class _HomePageState extends State<HomePage> {
       return;
     }
 
-    final selectedPath = await _showRunningAppsDialog(apps);
-    if (selectedPath == null) {
+    final selectedPaths = await _showRunningAppsDialog(apps);
+    if (selectedPaths == null || selectedPaths.isEmpty) {
       return;
     }
-    _viewModel.addSplitTunnelApp(selectedPath);
+    _viewModel.addSplitTunnelApps(selectedPaths);
   }
 
   Future<void> _connectWithPreflight() async {
-    final findings = _viewModel.hasBadAppScanResult
-        ? _viewModel.badAppFindings
-        : await _viewModel.scanBadAppFindings();
-    if (!mounted || findings == null) {
+    if (_viewModel.isBadAppPreflightPassed) {
+      await _viewModel.saveAndLaunch();
       return;
     }
 
-    if (findings.isNotEmpty) {
-      await _showBadAppScanBlockedDialog(findings);
+    final action = await _showPreflightRiskDialog();
+    if (!mounted || action == null) {
       return;
     }
 
-    await _viewModel.saveAndLaunch();
+    switch (action) {
+      case _PreflightRiskAction.acceptRisk:
+        await _viewModel.saveAndLaunch();
+      case _PreflightRiskAction.runScan:
+        final findings = await _viewModel.scanBadAppFindings();
+        if (!mounted || findings == null) {
+          return;
+        }
+
+        if (findings.isEmpty) {
+          await _viewModel.saveAndLaunch();
+          return;
+        }
+
+        await _showBadAppScanResultsDialog(findings);
+    }
   }
 
   Future<void> _runPreflightScan() async {
@@ -204,7 +248,15 @@ class _HomePageState extends State<HomePage> {
     if (!mounted || findings == null || findings.isEmpty) {
       return;
     }
-    await _showBadAppScanBlockedDialog(findings);
+    await _showBadAppScanResultsDialog(findings);
+  }
+
+  Future<void> _openPreflightResults() async {
+    final findings = _viewModel.badAppFindings;
+    if (!mounted || findings == null) {
+      return;
+    }
+    await _showBadAppScanResultsDialog(findings);
   }
 
   Future<String?> _showImportKeyDialog() async {
@@ -244,10 +296,43 @@ class _HomePageState extends State<HomePage> {
     return result?.trim().isEmpty ?? true ? null : result?.trim();
   }
 
-  Future<String?> _showRunningAppsDialog(List<RunningWindowsApp> apps) async {
+  Future<_PreflightRiskAction?> _showPreflightRiskDialog() {
+    return showDialog<_PreflightRiskAction>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: Text(widget.textCatalog.t('title.preflight_risk')),
+          content: SizedBox(
+            width: 520,
+            child: Text(widget.textCatalog.t('message.preflight_risk_body')),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(
+                _PreflightRiskAction.acceptRisk,
+              ),
+              child: Text(widget.textCatalog.t('button.accept_preflight_risk')),
+            ),
+            FilledButton.icon(
+              onPressed: () => Navigator.of(context).pop(
+                _PreflightRiskAction.runScan,
+              ),
+              icon: const Icon(Icons.health_and_safety_outlined),
+              label: Text(widget.textCatalog.t('button.preflight_scan')),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Future<List<String>?> _showRunningAppsDialog(
+    List<RunningWindowsApp> apps,
+  ) async {
     final searchController = TextEditingController();
+    final selectedPaths = <String>{};
     var query = '';
-    final result = await showDialog<String>(
+    final result = await showDialog<List<String>>(
       context: context,
       builder: (context) {
         return StatefulBuilder(
@@ -300,9 +385,13 @@ class _HomePageState extends State<HomePage> {
                               separatorBuilder: (_, __) => const Divider(),
                               itemBuilder: (context, index) {
                                 final app = filtered[index];
-                                return ListTile(
+                                final isSelected =
+                                    selectedPaths.contains(app.path);
+                                return CheckboxListTile(
                                   dense: true,
-                                  leading: const Icon(Icons.apps_outlined),
+                                  value: isSelected,
+                                  controlAffinity:
+                                      ListTileControlAffinity.leading,
                                   title: Text(
                                     app.name,
                                     maxLines: 1,
@@ -315,8 +404,15 @@ class _HomePageState extends State<HomePage> {
                                     style:
                                         Theme.of(context).textTheme.bodySmall,
                                   ),
-                                  onTap: () =>
-                                      Navigator.of(context).pop(app.path),
+                                  onChanged: (value) {
+                                    setDialogState(() {
+                                      if (value ?? false) {
+                                        selectedPaths.add(app.path);
+                                      } else {
+                                        selectedPaths.remove(app.path);
+                                      }
+                                    });
+                                  },
                                 );
                               },
                             ),
@@ -329,6 +425,23 @@ class _HomePageState extends State<HomePage> {
                   onPressed: () => Navigator.of(context).pop(),
                   child: Text(widget.textCatalog.t('button.cancel')),
                 ),
+                FilledButton.icon(
+                  onPressed: selectedPaths.isEmpty
+                      ? null
+                      : () {
+                          final orderedSelection = [
+                            for (final app in apps)
+                              if (selectedPaths.contains(app.path)) app.path,
+                          ];
+                          Navigator.of(context).pop(orderedSelection);
+                        },
+                  icon: const Icon(Icons.add_outlined),
+                  label: Text(
+                    widget.textCatalog.t('button.add_selected', {
+                      'count': selectedPaths.length,
+                    }),
+                  ),
+                ),
               ],
             );
           },
@@ -339,33 +452,57 @@ class _HomePageState extends State<HomePage> {
     return result;
   }
 
-  Future<void> _showBadAppScanBlockedDialog(
+  Future<void> _showBadAppScanResultsDialog(
     List<BadAppFinding> findings,
   ) {
     return showDialog<void>(
       context: context,
       builder: (context) {
+        final hasFindings = findings.isNotEmpty;
+        final scannedAt = _viewModel.badAppScannedAt;
+
         return AlertDialog(
-          title: Text(widget.textCatalog.t('title.vpn_scan_blocked')),
+          title: Text(
+            widget.textCatalog.t(
+              hasFindings ? 'title.vpn_scan_blocked' : 'title.vpn_scan_results',
+            ),
+          ),
           content: SizedBox(
             width: 600,
             height: 520,
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(widget.textCatalog.t('title.vpn_scan_blocked_body')),
+                Text(
+                  widget.textCatalog.t(
+                    hasFindings
+                        ? 'title.vpn_scan_blocked_body'
+                        : 'message.vpn_scan_clear',
+                  ),
+                ),
+                if (scannedAt != null) ...[
+                  const SizedBox(height: 6),
+                  Text(
+                    '${widget.textCatalog.t('label.bad_app_scanned_at')}: '
+                    '${_formatLocalDateTime(scannedAt)}',
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                ],
                 const SizedBox(height: 14),
                 Expanded(
-                  child: ListView.separated(
-                    itemCount: findings.length,
-                    separatorBuilder: (_, __) => const SizedBox(height: 10),
-                    itemBuilder: (context, index) {
-                      return _BadAppFindingTile(
-                        finding: findings[index],
-                        textCatalog: widget.textCatalog,
-                      );
-                    },
-                  ),
+                  child: hasFindings
+                      ? ListView.separated(
+                          itemCount: findings.length,
+                          separatorBuilder: (_, __) =>
+                              const SizedBox(height: 10),
+                          itemBuilder: (context, index) {
+                            return _BadAppFindingTile(
+                              finding: findings[index],
+                              textCatalog: widget.textCatalog,
+                            );
+                          },
+                        )
+                      : const _EmptyBadAppScanResult(),
                 ),
               ],
             ),
@@ -378,6 +515,115 @@ class _HomePageState extends State<HomePage> {
           ],
         );
       },
+    );
+  }
+
+  String _formatLocalDateTime(DateTime value) {
+    final local = value.toLocal();
+    String twoDigits(int number) => number.toString().padLeft(2, '0');
+    return '${local.year}-'
+        '${twoDigits(local.month)}-'
+        '${twoDigits(local.day)} '
+        '${twoDigits(local.hour)}:'
+        '${twoDigits(local.minute)}';
+  }
+}
+
+class _UpdateBanner extends StatelessWidget {
+  const _UpdateBanner({
+    required this.update,
+    required this.textCatalog,
+    required this.onOpen,
+    required this.onDismiss,
+  });
+
+  final AppUpdateInfo update;
+  final AppTextCatalog textCatalog;
+  final VoidCallback onOpen;
+  final VoidCallback onDismiss;
+
+  @override
+  Widget build(BuildContext context) {
+    final textTheme = Theme.of(context).textTheme;
+
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: const Color(0xFF282315),
+        borderRadius: BorderRadius.circular(MaydayRadii.large),
+        border: Border.all(color: MaydayColors.warn.withValues(alpha: 0.55)),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(14, 12, 6, 12),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Padding(
+              padding: EdgeInsets.only(top: 3),
+              child: Icon(
+                Icons.system_update_alt_outlined,
+                size: 19,
+                color: MaydayColors.warn,
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    textCatalog.t('update.banner_title', {
+                      'version': update.latestVersion.displayVersion,
+                    }),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: textTheme.titleMedium?.copyWith(
+                      color: MaydayColors.text,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    textCatalog.t('update.banner_body'),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: textTheme.bodySmall?.copyWith(
+                      color: MaydayColors.muted,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 8),
+            TextButton.icon(
+              onPressed: onOpen,
+              icon: const Icon(Icons.open_in_new_outlined, size: 16),
+              label: Text(textCatalog.t('button.update')),
+            ),
+            Tooltip(
+              message: textCatalog.t('tooltip.dismiss_update'),
+              child: IconButton(
+                visualDensity: VisualDensity.compact,
+                onPressed: onDismiss,
+                icon: const Icon(Icons.close_rounded, size: 18),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _EmptyBadAppScanResult extends StatelessWidget {
+  const _EmptyBadAppScanResult();
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Icon(
+        Icons.verified_user_outlined,
+        size: 42,
+        color: Theme.of(context).colorScheme.primary,
+      ),
     );
   }
 }
@@ -396,6 +642,7 @@ class _BadAppFindingTile extends StatelessWidget {
     final textTheme = Theme.of(context).textTheme;
     final title = finding.title;
     final details = _detailLines();
+    final path = finding.path.trim();
 
     return DecoratedBox(
       decoration: BoxDecoration(
@@ -451,6 +698,13 @@ class _BadAppFindingTile extends StatelessWidget {
                   ),
                 ),
             ],
+            if (path.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              _BadAppPathRow(
+                path: path,
+                textCatalog: textCatalog,
+              ),
+            ],
             if (finding.matchedKeywords.isNotEmpty) ...[
               const SizedBox(height: 8),
               Text(
@@ -495,11 +749,72 @@ class _BadAppFindingTile extends StatelessWidget {
       lines.add('${textCatalog.t(labelKey)}: $trimmed');
     }
 
-    add('label.bad_app_path', finding.path);
     add('label.bad_app_publisher', finding.publisher);
     add('label.bad_app_version', finding.version);
     add('label.bad_app_status', finding.status);
     add('label.bad_app_state', finding.state);
     return lines;
+  }
+}
+
+class _BadAppPathRow extends StatelessWidget {
+  const _BadAppPathRow({
+    required this.path,
+    required this.textCatalog,
+  });
+
+  final String path;
+  final AppTextCatalog textCatalog;
+
+  @override
+  Widget build(BuildContext context) {
+    final textTheme = Theme.of(context).textTheme;
+
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: MaydayColors.sunken,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: MaydayColors.border),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(10, 8, 4, 8),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    textCatalog.t('label.bad_app_path'),
+                    style: textTheme.labelMedium,
+                  ),
+                  const SizedBox(height: 3),
+                  SelectableText(
+                    path,
+                    style: textTheme.bodySmall,
+                  ),
+                ],
+              ),
+            ),
+            Tooltip(
+              message: textCatalog.t('tooltip.copy_path'),
+              child: IconButton(
+                onPressed: () {
+                  unawaited(Clipboard.setData(ClipboardData(text: path)));
+                  ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+                    SnackBar(
+                      content: Text(textCatalog.t('message.path_copied')),
+                      duration: const Duration(seconds: 2),
+                    ),
+                  );
+                },
+                icon: const Icon(Icons.copy_outlined, size: 18),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }

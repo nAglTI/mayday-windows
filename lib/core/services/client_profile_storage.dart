@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:path/path.dart' as p;
 
+import '../app_metadata.dart';
 import '../models/client_profile.dart';
 import '../models/runtime_paths.dart';
 import '../l10n/app_texts.dart';
@@ -20,7 +21,6 @@ class ClientProfileStorage {
     ProfileEncryptionService? encryptionService,
   })  : _runtimePathsService =
             runtimePathsService ?? const RuntimePathsService(),
-        _textCatalog = textCatalog ?? const AppTextCatalog(AppLanguage.english),
         _codec = codec ??
             ClientProfileCodec(
                 appTextCatalog:
@@ -31,10 +31,12 @@ class ClientProfileStorage {
             encryptionService ?? const ProfileEncryptionService();
 
   final RuntimePathsService _runtimePathsService;
-  final AppTextCatalog _textCatalog;
   final ClientProfileCodec _codec;
   final RuntimeDiagnosticsLogger _diagnosticsLogger;
   final ProfileEncryptionService _encryptionService;
+
+  static const currentContractVersion = 5;
+  static const _metadataFileName = 'client_profile_metadata.json';
 
   Future<RuntimePaths> getPaths() {
     return _runtimePathsService.getPaths();
@@ -46,10 +48,31 @@ class ClientProfileStorage {
       return null;
     }
 
-    return _codec.parseRaw(
-      raw,
-      currentProfileName: _textCatalog.t('file.saved_name'),
-    );
+    return _codec.parseRaw(raw);
+  }
+
+  Future<ClientProfile?> loadSavedProfileForCurrentContract() async {
+    final paths = await _runtimePathsService.getPaths();
+    final raw = await loadSavedRawConfig();
+    if (raw == null) {
+      return null;
+    }
+
+    final metadata = await _readMetadata(paths);
+    if (metadata == null) {
+      final profile = _codec.parseCurrentContractRaw(raw);
+      await _writeMetadata(paths);
+      return profile;
+    }
+
+    final contractVersion = _readInt(metadata['contractVersion']);
+    if (contractVersion != currentContractVersion) {
+      throw ClientProfileContractException(
+        'Saved profile contract $contractVersion is not supported.',
+      );
+    }
+
+    return _codec.parseCurrentContractRaw(raw);
   }
 
   Future<String?> loadSavedRawConfig() async {
@@ -94,6 +117,7 @@ class ClientProfileStorage {
 
     try {
       final savedFile = await _writeEncrypted(paths, encoded);
+      await _writeMetadata(paths);
       await _deleteIfExists(File(_legacyPlainConfigPath(paths)));
       if (!_diagnosticsLogger.enabled) {
         return savedFile;
@@ -147,6 +171,47 @@ class ClientProfileStorage {
     return file.writeAsString(encrypted, flush: true);
   }
 
+  Future<Map<String, Object?>?> _readMetadata(RuntimePaths paths) async {
+    try {
+      final file = File(_metadataPath(paths));
+      if (!await file.exists()) {
+        return null;
+      }
+
+      final raw = await file.readAsString();
+      if (raw.trim().isEmpty) {
+        return null;
+      }
+
+      final decoded = jsonDecode(raw);
+      if (decoded is Map<String, dynamic>) {
+        return Map<String, Object?>.from(decoded);
+      }
+    } catch (_) {
+      // Treat malformed metadata as missing and validate the raw profile.
+    }
+
+    return null;
+  }
+
+  Future<File> _writeMetadata(RuntimePaths paths) async {
+    await _runtimePathsService.ensureMutableDirectories(paths);
+    final file = File(_metadataPath(paths));
+    final metadata = {
+      'contractVersion': currentContractVersion,
+      'appVersion': MaydayAppMetadata.version,
+      'savedAt': DateTime.now().toIso8601String(),
+    };
+    return file.writeAsString(jsonEncode(metadata), flush: true);
+  }
+
+  int? _readInt(Object? value) {
+    if (value is int) {
+      return value;
+    }
+    return int.tryParse(value?.toString().trim() ?? '');
+  }
+
   Future<void> _deleteIfExists(File file) async {
     if (await file.exists()) {
       await file.delete();
@@ -159,5 +224,9 @@ class ClientProfileStorage {
 
   String _runtimeConfigPath(RuntimePaths paths) {
     return p.join(paths.configDir, 'client.runtime.yaml');
+  }
+
+  String _metadataPath(RuntimePaths paths) {
+    return p.join(paths.configDir, _metadataFileName);
   }
 }

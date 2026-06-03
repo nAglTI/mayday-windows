@@ -38,25 +38,32 @@ class RuntimeLauncher {
     RuntimePathsService? runtimePathsService,
     RuntimeDiagnosticsLogger? diagnosticsLogger,
     RuntimeProcessJob? processJob,
+    RuntimeControlClient? controlClient,
     AppTextCatalog? appTextCatalog,
   })  : _runtimePathsService =
             runtimePathsService ?? const RuntimePathsService(),
         _diagnosticsLogger =
             diagnosticsLogger ?? const RuntimeDiagnosticsLogger(),
         _processJob = processJob ?? RuntimeProcessJob(),
+        _controlClient = controlClient ?? RuntimeControlClient(),
         _textCatalog =
             appTextCatalog ?? const AppTextCatalog(AppLanguage.english);
 
   static const _startupProbeTimeout = Duration(milliseconds: 2500);
+  static const _pipeWaitTimeout = Duration(seconds: 30);
+  static const _commandWaitTimeout = Duration(seconds: 45);
   static const _logFlushTimeout = Duration(seconds: 2);
 
   final RuntimePathsService _runtimePathsService;
   final RuntimeDiagnosticsLogger _diagnosticsLogger;
   final RuntimeProcessJob _processJob;
+  final RuntimeControlClient _controlClient;
   AppTextCatalog _textCatalog;
   final _runningStateController = StreamController<bool>.broadcast();
   Process? _activeProcess;
   Future<List<void>>? _activeLogPipes;
+  int? _activeConfigFingerprint;
+  bool _vpnActive = false;
 
   void updateTextCatalog(AppTextCatalog appTextCatalog) {
     _textCatalog = appTextCatalog;
@@ -71,15 +78,6 @@ class RuntimeLauncher {
   }) async {
     final paths = await _runtimePathsService.getPaths();
     final launcherLogPath = await _launcherLogPath(paths);
-    if (_activeProcess != null) {
-      await _deleteConfigIfRequested(configPath, deleteConfigAfterLaunch);
-      return LaunchResult(
-        success: true,
-        message: _textCatalog.t('client.running'),
-        processId: _activeProcess!.pid,
-      );
-    }
-
     await _diagnosticsLogger.writeEvent(
       paths,
       event: 'process.launch.requested',
@@ -112,10 +110,21 @@ class RuntimeLauncher {
       );
     }
 
-    final missingFiles = await _runtimePathsService.validateRuntime(
-      paths,
-      includeSplitTunnelFiles: requiresSplitTunnel,
-    );
+    final activeProcess = _activeProcess;
+    if (activeProcess != null) {
+      if (_activeConfigFingerprint == configInspection.fingerprint) {
+        await _deleteConfigIfRequested(configPath, deleteConfigAfterLaunch);
+        return _startVpnOnActiveProcess(paths, launcherLogPath);
+      }
+
+      await _shutdownActiveProcess(
+        paths,
+        launcherLogPath,
+        reason: 'config_changed',
+      );
+    }
+
+    final missingFiles = await _runtimePathsService.validateRuntime(paths);
     if (missingFiles.isNotEmpty) {
       await _diagnosticsLogger.writeEvent(
         paths,
@@ -145,7 +154,7 @@ class RuntimeLauncher {
     );
   }
 
-  bool get isRunning => _activeProcess != null;
+  bool get isRunning => _vpnActive;
 
   Future<StopResult> stop() async {
     final paths = await _runtimePathsService.getPaths();
@@ -164,57 +173,57 @@ class RuntimeLauncher {
 
     await _diagnosticsLogger.writeEvent(
       paths,
-      event: 'process.stop.requested',
+      event: 'vpn.stop.requested',
       fields: {
         'processId': process.pid,
+        'pipe': paths.controlPipePath,
       },
     );
 
     try {
-      final signalled = process.kill();
-      final exitCode = await process.exitCode.timeout(
-        const Duration(seconds: 5),
+      final result = await _controlClient.send(
+        paths,
+        command: 'stop',
+        waitTimeout: _commandWaitTimeout,
       );
-      await _activeLogPipes?.timeout(
-        _logFlushTimeout,
-        onTimeout: () => <void>[],
-      );
-      _clearActiveProcess(process);
 
+      if (!result.success) {
+        await _diagnosticsLogger.writeEvent(
+          paths,
+          event: 'vpn.stop.failed',
+          fields: {
+            'processId': process.pid,
+            ...result.toLogFields(),
+          },
+        );
+        return StopResult(
+          success: false,
+          message: _controlFailureMessage(
+            command: 'stop',
+            result: result,
+            logPath: launcherLogPath,
+          ),
+          exitCode: result.exitCode,
+        );
+      }
+
+      _setVpnActive(false);
       await _diagnosticsLogger.writeEvent(
         paths,
-        event: 'process.stop.completed',
+        event: 'vpn.stop.completed',
         fields: {
           'processId': process.pid,
-          'killSignalSent': signalled,
-          'exitCode': exitCode,
+          ...result.toLogFields(),
         },
       );
       return StopResult(
         success: true,
         message: _messageWithOptionalLog(
-          withLogKey: 'client.stopped',
-          withoutLogKey: 'client.stopped_no_log',
-          logPath: launcherLogPath,
-          values: {'code': exitCode},
-        ),
-        exitCode: exitCode,
-      );
-    } on TimeoutException {
-      await _diagnosticsLogger.writeEvent(
-        paths,
-        event: 'process.stop.timeout',
-        fields: {
-          'processId': process.pid,
-        },
-      );
-      return StopResult(
-        success: false,
-        message: _messageWithOptionalLog(
-          withLogKey: 'client.stop_timeout',
-          withoutLogKey: 'client.stop_timeout_no_log',
+          withLogKey: 'client.vpn_stopped',
+          withoutLogKey: 'client.vpn_stopped_no_log',
           logPath: launcherLogPath,
         ),
+        exitCode: result.exitCode,
       );
     } catch (error) {
       await _diagnosticsLogger.writeEvent(
@@ -235,6 +244,16 @@ class RuntimeLauncher {
         ),
       );
     }
+  }
+
+  Future<StopResult> shutdown() async {
+    final paths = await _runtimePathsService.getPaths();
+    final launcherLogPath = await _launcherLogPath(paths);
+    return _shutdownActiveProcess(
+      paths,
+      launcherLogPath,
+      reason: 'ui_shutdown',
+    );
   }
 
   Future<LaunchResult> _launchDirectWithDiagnostics(
@@ -259,7 +278,7 @@ class RuntimeLauncher {
     try {
       final process = await Process.start(
         paths.clientExePath,
-        ['-config', configPath],
+        ['-config', configPath, '-control-pipe', paths.controlPipePath],
         workingDirectory: paths.runtimeDir,
         mode: ProcessStartMode.normal,
       );
@@ -273,31 +292,70 @@ class RuntimeLauncher {
       final earlyExitCode = await _waitForEarlyExit(process.exitCode);
 
       if (earlyExitCode == null) {
+        final statusProbe = await _controlClient.send(
+          paths,
+          command: 'status',
+          waitTimeout: _pipeWaitTimeout,
+        );
+
+        if (!statusProbe.success) {
+          process.kill();
+          await pipes.done.timeout(
+            _logFlushTimeout,
+            onTimeout: () => <void>[],
+          );
+          await _deleteConfigIfRequested(configPath, deleteConfigAfterLaunch);
+          await _diagnosticsLogger.writeEvent(
+            paths,
+            event: 'process.launch.pipe_not_ready',
+            fields: {
+              ...configInspection.toLogFields(),
+              'processId': process.pid,
+              ...statusProbe.toLogFields(),
+            },
+          );
+          return LaunchResult(
+            success: false,
+            message: _controlFailureMessage(
+              command: 'status',
+              result: statusProbe,
+              logPath: launcherLogPath,
+            ),
+            processId: process.pid,
+          );
+        }
+
         _activeProcess = process;
         _activeLogPipes = pipes.done;
-        _runningStateController.add(true);
+        _activeConfigFingerprint = configInspection.fingerprint;
+        _setVpnActive(false);
         unawaited(_observeProcessExit(paths, process, pipes.done));
+
+        final transports = await _controlClient.send(
+          paths,
+          command: 'transports',
+          waitTimeout: const Duration(seconds: 5),
+        );
         await _diagnosticsLogger.writeEvent(
           paths,
           event: 'process.launch.started',
           fields: {
             ...configInspection.toLogFields(),
             'processId': process.pid,
-            'arguments': '-config $configPath',
+            'arguments':
+                '-config $configPath -control-pipe ${paths.controlPipePath}',
+            'controlPipe': paths.controlPipePath,
+            'statusProbe': statusProbe.toLogFields(),
+            'transports': transports.toLogFields(),
             if (stdoutLogPath != null) 'stdoutLogPath': stdoutLogPath,
             if (stderrLogPath != null) 'stderrLogPath': stderrLogPath,
           },
         );
         await _deleteConfigIfRequested(configPath, deleteConfigAfterLaunch);
-        return LaunchResult(
-          success: true,
-          message: _diagnosticsLogger.enabled
-              ? _textCatalog.t('client.started', {
-                  'launcherLog': launcherLogPath,
-                  'stdoutLog': stdoutLogPath,
-                  'stderrLog': stderrLogPath,
-                })
-              : _textCatalog.t('client.started_no_log'),
+
+        return _startVpnOnActiveProcess(
+          paths,
+          launcherLogPath,
           processId: process.pid,
         );
       }
@@ -356,6 +414,139 @@ class RuntimeLauncher {
         ),
       );
     }
+  }
+
+  Future<LaunchResult> _startVpnOnActiveProcess(
+    RuntimePaths paths,
+    String? launcherLogPath, {
+    int? processId,
+  }) async {
+    final process = _activeProcess;
+    final result = await _controlClient.send(
+      paths,
+      command: 'start',
+      waitTimeout: _commandWaitTimeout,
+    );
+
+    await _diagnosticsLogger.writeEvent(
+      paths,
+      event: result.success ? 'vpn.start.completed' : 'vpn.start.failed',
+      fields: {
+        if (process != null) 'processId': process.pid,
+        ...result.toLogFields(),
+      },
+    );
+
+    if (!result.success) {
+      _setVpnActive(false);
+      return LaunchResult(
+        success: false,
+        message: _controlFailureMessage(
+          command: 'start',
+          result: result,
+          logPath: launcherLogPath,
+        ),
+        processId: processId ?? process?.pid,
+      );
+    }
+
+    _setVpnActive(true);
+    return LaunchResult(
+      success: true,
+      message: _messageWithOptionalLog(
+        withLogKey: 'client.vpn_started',
+        withoutLogKey: 'client.vpn_started_no_log',
+        logPath: launcherLogPath,
+      ),
+      processId: processId ?? process?.pid,
+    );
+  }
+
+  Future<StopResult> _shutdownActiveProcess(
+    RuntimePaths paths,
+    String? launcherLogPath, {
+    required String reason,
+  }) async {
+    final process = _activeProcess;
+    if (process == null) {
+      _setVpnActive(false);
+      return StopResult(
+        success: true,
+        message: _messageWithOptionalLog(
+          withLogKey: 'client.not_running',
+          withoutLogKey: 'client.not_running_no_log',
+          logPath: launcherLogPath,
+        ),
+      );
+    }
+
+    await _diagnosticsLogger.writeEvent(
+      paths,
+      event: 'process.shutdown.requested',
+      fields: {
+        'reason': reason,
+        'processId': process.pid,
+        'pipe': paths.controlPipePath,
+      },
+    );
+
+    final result = await _controlClient.send(
+      paths,
+      command: 'shutdown',
+      waitTimeout: const Duration(seconds: 5),
+    );
+
+    var exitCode = result.exitCode;
+    if (result.success) {
+      try {
+        exitCode = await process.exitCode.timeout(const Duration(seconds: 5));
+      } on TimeoutException {
+        process.kill();
+      }
+    } else {
+      process.kill();
+    }
+
+    await _activeLogPipes?.timeout(
+      _logFlushTimeout,
+      onTimeout: () => <void>[],
+    );
+    _clearActiveProcess(process);
+
+    await _diagnosticsLogger.writeEvent(
+      paths,
+      event: result.success
+          ? 'process.shutdown.completed'
+          : 'process.shutdown.failed',
+      fields: {
+        'reason': reason,
+        'processId': process.pid,
+        'exitCode': exitCode,
+        ...result.toLogFields(),
+      },
+    );
+
+    if (!result.success) {
+      return StopResult(
+        success: false,
+        message: _controlFailureMessage(
+          command: 'shutdown',
+          result: result,
+          logPath: launcherLogPath,
+        ),
+        exitCode: exitCode,
+      );
+    }
+
+    return StopResult(
+      success: true,
+      message: _messageWithOptionalLog(
+        withLogKey: 'client.shutdown',
+        withoutLogKey: 'client.shutdown_no_log',
+        logPath: launcherLogPath,
+      ),
+      exitCode: exitCode,
+    );
   }
 
   Future<void> _attachProcessToJob(RuntimePaths paths, Process process) async {
@@ -425,7 +616,16 @@ class RuntimeLauncher {
     }
     _activeProcess = null;
     _activeLogPipes = null;
-    _runningStateController.add(false);
+    _activeConfigFingerprint = null;
+    _setVpnActive(false);
+  }
+
+  void _setVpnActive(bool value) {
+    if (_vpnActive == value) {
+      return;
+    }
+    _vpnActive = value;
+    _runningStateController.add(value);
   }
 
   _ProcessLogPipes _pipeProcessOutput(
@@ -533,6 +733,7 @@ class RuntimeLauncher {
         readOk: true,
         sizeBytes: stat.size,
         modified: stat.modified,
+        fingerprint: _stableConfigFingerprint(raw),
         preview: _diagnosticsLogger.enabled
             ? _diagnosticsLogger.configPreview(raw)
             : null,
@@ -544,6 +745,15 @@ class RuntimeLauncher {
         readError: error.toString(),
       );
     }
+  }
+
+  int _stableConfigFingerprint(String value) {
+    var hash = 0x811c9dc5;
+    for (final codeUnit in value.codeUnits) {
+      hash ^= codeUnit;
+      hash = (hash * 0x01000193) & 0xffffffff;
+    }
+    return hash;
   }
 
   Future<String?> _launcherLogPath(RuntimePaths paths) async {
@@ -568,6 +778,51 @@ class RuntimeLauncher {
       'log': logPath,
     });
   }
+
+  String _controlFailureMessage({
+    required String command,
+    required RuntimeControlResult result,
+    required String? logPath,
+  }) {
+    return _messageWithOptionalLog(
+      withLogKey: 'client.control_failed',
+      withoutLogKey: 'client.control_failed_no_log',
+      logPath: logPath,
+      values: {
+        'command': _controlCommandLabel(command),
+        'error': _controlErrorLabel(result),
+      },
+    );
+  }
+
+  String _controlCommandLabel(String command) {
+    return switch (command) {
+      'start' => _textCatalog.t('client.control_command_start'),
+      'stop' => _textCatalog.t('client.control_command_stop'),
+      'status' => _textCatalog.t('client.control_command_status'),
+      'shutdown' => _textCatalog.t('client.control_command_shutdown'),
+      'transports' => _textCatalog.t('client.control_command_transports'),
+      _ => command,
+    };
+  }
+
+  String _controlErrorLabel(RuntimeControlResult result) {
+    final details = result.details.trim().toLowerCase();
+    if (details.contains('access is denied') ||
+        details.contains('0x00000005')) {
+      return _textCatalog.t('client.control_error_access_denied');
+    }
+    if (details.contains('timeout') || details.contains('timed out')) {
+      return _textCatalog.t('client.control_error_timeout');
+    }
+    if (result.exitCode != 0) {
+      return _textCatalog.t(
+        'client.control_error_code',
+        {'code': result.exitCode},
+      );
+    }
+    return _textCatalog.t('client.control_error_generic');
+  }
 }
 
 class _ProcessLogPipes {
@@ -585,6 +840,7 @@ class _ConfigInspection {
     this.readOk = false,
     this.sizeBytes,
     this.modified,
+    this.fingerprint,
     this.preview,
     this.readError,
   });
@@ -594,6 +850,7 @@ class _ConfigInspection {
   final bool readOk;
   final int? sizeBytes;
   final DateTime? modified;
+  final int? fingerprint;
   final String? preview;
   final String? readError;
 
@@ -604,8 +861,83 @@ class _ConfigInspection {
       'configReadOk': readOk,
       'configSizeBytes': sizeBytes,
       'configModified': modified?.toIso8601String(),
+      'configFingerprint': fingerprint,
       'configReadError': readError,
       if (preview != null) 'configPreview': '\n$preview',
+    };
+  }
+}
+
+class RuntimeControlClient {
+  const RuntimeControlClient();
+
+  Future<RuntimeControlResult> send(
+    RuntimePaths paths, {
+    required String command,
+    required Duration waitTimeout,
+  }) async {
+    final helperPath = paths.pipeHelperExePath.isEmpty
+        ? p.join(paths.runtimeDir, 'mdpipectl.exe')
+        : paths.pipeHelperExePath;
+    final result = await Process.run(
+      helperPath,
+      [
+        '-pipe',
+        paths.controlPipePath,
+        '-command',
+        command,
+        '-wait-timeout',
+        _goDuration(waitTimeout),
+      ],
+      workingDirectory: paths.runtimeDir,
+    );
+
+    return RuntimeControlResult(
+      command: command,
+      exitCode: result.exitCode,
+      stdout: result.stdout?.toString() ?? '',
+      stderr: result.stderr?.toString() ?? '',
+    );
+  }
+
+  String _goDuration(Duration duration) {
+    if (duration.inMilliseconds % 1000 == 0) {
+      return '${duration.inSeconds}s';
+    }
+    return '${duration.inMilliseconds}ms';
+  }
+}
+
+class RuntimeControlResult {
+  const RuntimeControlResult({
+    required this.command,
+    required this.exitCode,
+    required this.stdout,
+    required this.stderr,
+  });
+
+  final String command;
+  final int exitCode;
+  final String stdout;
+  final String stderr;
+
+  bool get success => exitCode == 0;
+
+  String get details {
+    final lines = <String>[
+      if (stderr.trim().isNotEmpty) stderr.trim(),
+      if (stdout.trim().isNotEmpty) stdout.trim(),
+      if (exitCode != 0) 'exit code $exitCode',
+    ];
+    return lines.isEmpty ? 'ok' : lines.join('\n');
+  }
+
+  Map<String, Object?> toLogFields() {
+    return {
+      'command': command,
+      'exitCode': exitCode,
+      if (stdout.trim().isNotEmpty) 'stdout': stdout.trim(),
+      if (stderr.trim().isNotEmpty) 'stderr': stderr.trim(),
     };
   }
 }

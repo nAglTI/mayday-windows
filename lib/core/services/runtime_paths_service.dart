@@ -12,6 +12,8 @@ class RuntimePathsService {
     defaultValue: 'local',
   );
   static const String _runtimeExecutableName = 'mdhelper.exe';
+  static const String _pipeHelperExecutableName = 'mdpipectl.exe';
+  static const String _controlPipePath = r'\\.\pipe\mayday-control';
 
   Future<RuntimePaths> getPaths() async {
     final installRoot = File(Platform.resolvedExecutable).parent.path;
@@ -25,6 +27,8 @@ class RuntimePathsService {
       installRoot: installRoot,
       runtimeDir: runtimeDir,
       clientExePath: p.join(runtimeDir, _runtimeExecutableName),
+      pipeHelperExePath: p.join(runtimeDir, _pipeHelperExecutableName),
+      controlPipePath: _controlPipePath,
       mutableRoot: mutableRoot,
       configDir: configDir,
       configPath: p.join(configDir, 'client.yaml.dpapi'),
@@ -43,20 +47,12 @@ class RuntimePathsService {
     await Directory(paths.configDir).create(recursive: true);
   }
 
-  Future<List<String>> validateRuntime(
-    RuntimePaths paths, {
-    bool includeSplitTunnelFiles = false,
-  }) async {
+  Future<List<String>> validateRuntime(RuntimePaths paths) async {
     final requiredFiles = <String>[
       paths.clientExePath,
+      paths.pipeHelperExePath,
       p.join(paths.runtimeDir, 'wintun.dll'),
     ];
-    if (includeSplitTunnelFiles) {
-      requiredFiles.addAll([
-        p.join(paths.runtimeDir, 'WinDivert.dll'),
-        p.join(paths.runtimeDir, 'WinDivert64.sys'),
-      ]);
-    }
 
     final missing = <String>[];
     for (final filePath in requiredFiles) {

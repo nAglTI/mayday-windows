@@ -43,7 +43,7 @@ Future<void> main(List<String> args) async {
 
   await runChecked(
     Platform.resolvedExecutable,
-    ['run', 'tool/bootstrap_windows.dart', '--flutter-cmd', flutterCmd],
+    ['tool/bootstrap_windows.dart', '--flutter-cmd', flutterCmd],
     workingDirectory: repoRoot,
   );
   await runChecked(flutterCmd, ['pub', 'get'], workingDirectory: repoRoot);
@@ -58,6 +58,7 @@ Future<void> main(List<String> args) async {
       '--build-number',
       buildVersion.buildNumber,
       '--dart-define=MAYDAY_BUILD_VARIANT=$buildVariant',
+      '--dart-define=MAYDAY_APP_VERSION=${buildVersion.displayVersion}',
       '--obfuscate',
       '--split-debug-info',
       symbolsDir,
@@ -67,7 +68,6 @@ Future<void> main(List<String> args) async {
   await runChecked(
     Platform.resolvedExecutable,
     [
-      'run',
       'tool/stage_runtime.dart',
       '--target-dir',
       runtimeTargetDir,

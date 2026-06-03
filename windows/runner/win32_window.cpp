@@ -14,10 +14,11 @@ namespace {
 
 constexpr const wchar_t kWindowClassName[] = L"FLUTTER_RUNNER_WIN32_WINDOW";
 constexpr const wchar_t kTrayTooltip[] = L"Mayday";
-constexpr const wchar_t kGetPreferredBrightnessRegKey[] =
+constexpr const wchar_t kPersonalizeRegKey[] =
     L"Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize";
-constexpr const wchar_t kGetPreferredBrightnessRegValue[] =
-    L"AppsUseLightTheme";
+constexpr const wchar_t kAppsUseLightThemeRegValue[] = L"AppsUseLightTheme";
+constexpr const wchar_t kSystemUsesLightThemeRegValue[] =
+    L"SystemUsesLightTheme";
 constexpr UINT kTrayIconId = 1;
 constexpr UINT kTrayCallbackMessage = WM_APP + 1;
 constexpr UINT kTrayShowCommand = 40001;
@@ -43,6 +44,14 @@ void EnableFullDpiSupportIfAvailable(HWND hwnd) {
     enable_non_client_dpi_scaling(hwnd);
   }
   FreeLibrary(user32_module);
+}
+
+bool ReadPersonalizeDword(const wchar_t* value_name, DWORD* value) {
+  DWORD value_size = sizeof(*value);
+  LSTATUS result =
+      RegGetValue(HKEY_CURRENT_USER, kPersonalizeRegKey, value_name,
+                  RRF_RT_REG_DWORD, nullptr, value, &value_size);
+  return result == ERROR_SUCCESS;
 }
 
 }  // namespace
@@ -223,7 +232,10 @@ LRESULT Win32Window::MessageHandler(HWND hwnd, UINT const message,
       return 0;
 
     case WM_DWMCOLORIZATIONCOLORCHANGED:
+    case WM_SETTINGCHANGE:
+    case WM_THEMECHANGED:
       UpdateTheme(hwnd);
+      UpdateTrayIcon();
       return 0;
   }
 
@@ -318,14 +330,8 @@ void Win32Window::OnDestroy() {
 }
 
 void Win32Window::UpdateTheme(HWND const window) {
-  DWORD light_mode;
-  DWORD light_mode_size = sizeof(light_mode);
-  LSTATUS result = RegGetValue(HKEY_CURRENT_USER, kGetPreferredBrightnessRegKey,
-                               kGetPreferredBrightnessRegValue,
-                               RRF_RT_REG_DWORD, nullptr, &light_mode,
-                               &light_mode_size);
-
-  if (result == ERROR_SUCCESS) {
+  DWORD light_mode = 1;
+  if (ReadPersonalizeDword(kAppsUseLightThemeRegValue, &light_mode)) {
     BOOL enable_dark_mode = light_mode == 0;
     DwmSetWindowAttribute(window, DWMWA_USE_IMMERSIVE_DARK_MODE,
                           &enable_dark_mode, sizeof(enable_dark_mode));
@@ -383,8 +389,20 @@ void Win32Window::UpdateTrayIcon() {
   Shell_NotifyIcon(NIM_MODIFY, &nid);
 }
 
+bool Win32Window::IsSystemUsingLightTheme() {
+  DWORD light_mode = 0;
+  if (!ReadPersonalizeDword(kSystemUsesLightThemeRegValue, &light_mode)) {
+    return false;
+  }
+  return light_mode != 0;
+}
+
 HICON Win32Window::LoadTrayIcon() const {
-  const int resource_id = tray_vpn_connected_ ? IDI_TRAY_ON : IDI_TRAY_OFF;
+  const bool use_light_theme_icon = IsSystemUsingLightTheme();
+  const int resource_id =
+      tray_vpn_connected_
+          ? (use_light_theme_icon ? IDI_TRAY_ON_LIGHT : IDI_TRAY_ON)
+          : (use_light_theme_icon ? IDI_TRAY_OFF_LIGHT : IDI_TRAY_OFF);
   const int width = GetSystemMetrics(SM_CXSMICON);
   const int height = GetSystemMetrics(SM_CYSMICON);
   HICON icon = reinterpret_cast<HICON>(LoadImage(

@@ -42,7 +42,6 @@ Future<void> main(List<String> args) async {
   await runChecked(
     Platform.resolvedExecutable,
     [
-      'run',
       'tool/build_windows_release.dart',
       '--flutter-cmd',
       flutterCmd,
