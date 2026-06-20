@@ -44,4 +44,25 @@ void main() {
     expect(snapshot, isNotNull);
     expect(snapshot!.activeTransportId, 'ws');
   });
+
+  test('parses line based status report from Windows pipe helper', () {
+    final snapshot = RuntimeStatusSnapshot.tryParse('''
+2026-06-20T20:31:41+03:00 state=vpn_connect vpn=active relay=r37 transport=bt-utp exit=g1 probed=0 best=- active_score=1900 active_rtt=0ms up=- down=-
+  proto=bt-utp priority=10 known_relays=1 measured_relays=0 reachable_relays=1 best_relay=r37 rtt=- connect=- throughput=- quick=- up=- down=- active=yes reachable=yes
+  proto=ws priority=15 known_relays=1 measured_relays=0 reachable_relays=0 best_relay=r37 rtt=- connect=- throughput=- quick=- up=- down=- reachable=no
+  endpoint=r37-bt-utp relay=r37 proto=bt-utp priority=10 measured=no reachable=yes selected=yes active=yes score=1900 rtt=- connect=- throughput=- quick=- up=- down=- exits=g1,n1,u1
+  endpoint=r37-ws relay=r37 proto=ws priority=15 measured=no reachable=no selected=no active=no score=850 rtt=- connect=- throughput=- quick=- up=- down=- exits=g1,n1,u1
+''');
+
+    expect(snapshot, isNotNull);
+    expect(snapshot!.coreState, 'vpn_connect');
+    expect(snapshot.vpnState, 'active');
+    expect(snapshot.activeRelayId, 'r37');
+    expect(snapshot.activeTransportId, 'bt-utp');
+    expect(snapshot.activeServerId, 'g1');
+    expect(snapshot.protocolDiagnostics.first, contains('bt-utp'));
+    expect(snapshot.protocolDiagnostics.first, contains('active'));
+    expect(snapshot.endpointDiagnostics.first, contains('current'));
+    expect(snapshot.endpointDiagnostics.first, contains('relay r37'));
+  });
 }
