@@ -39,7 +39,7 @@ void main() {
       ),
     );
 
-    final update = await service.checkForUpdate(currentVersion: '2.1.0+1');
+    final update = await service.checkForUpdate(currentVersion: '2.1.1+1');
 
     expect(update, isNotNull);
     expect(update!.latestVersion.displayVersion, '2.2.0');
@@ -49,13 +49,13 @@ void main() {
   test('ignores same, older, draft, and prerelease GitHub releases', () async {
     Future<AppUpdateInfo?> check(GitHubRelease release) {
       return AppUpdateService(releaseLoader: () async => release)
-          .checkForUpdate(currentVersion: '2.1.0+1');
+          .checkForUpdate(currentVersion: '2.1.1+1');
     }
 
     expect(
       await check(
         const GitHubRelease(
-          tagName: 'v2.1.0',
+          tagName: 'v2.1.1',
           name: '',
           htmlUrl: '',
           draft: false,
@@ -67,7 +67,7 @@ void main() {
     expect(
       await check(
         const GitHubRelease(
-          tagName: 'v2.0.9',
+          tagName: 'v2.1.0',
           name: '',
           htmlUrl: '',
           draft: false,

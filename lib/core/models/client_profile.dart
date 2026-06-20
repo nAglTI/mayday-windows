@@ -22,6 +22,8 @@ class ClientProfile {
     this.disableIpv6 = false,
     this.tunnelMtu = 1280,
     this.packetFragmentPayloadBytes = 0,
+    this.packetPaddingMinBytes = 0,
+    this.packetPaddingMaxBytes = 0,
     this.disablePacketBatching = false,
     this.splitTunnelMode = SplitTunnelMode.disabled,
     this.windowsApps = const [],
@@ -45,6 +47,8 @@ class ClientProfile {
   final bool disableIpv6;
   final int tunnelMtu;
   final int packetFragmentPayloadBytes;
+  final int packetPaddingMinBytes;
+  final int packetPaddingMaxBytes;
   final bool disablePacketBatching;
   final SplitTunnelMode splitTunnelMode;
   final List<String> windowsApps;
@@ -68,6 +72,8 @@ class ClientProfile {
     bool? disableIpv6,
     int? tunnelMtu,
     int? packetFragmentPayloadBytes,
+    int? packetPaddingMinBytes,
+    int? packetPaddingMaxBytes,
     bool? disablePacketBatching,
     SplitTunnelMode? splitTunnelMode,
     List<String>? windowsApps,
@@ -95,6 +101,10 @@ class ClientProfile {
       tunnelMtu: tunnelMtu ?? this.tunnelMtu,
       packetFragmentPayloadBytes:
           packetFragmentPayloadBytes ?? this.packetFragmentPayloadBytes,
+      packetPaddingMinBytes:
+          packetPaddingMinBytes ?? this.packetPaddingMinBytes,
+      packetPaddingMaxBytes:
+          packetPaddingMaxBytes ?? this.packetPaddingMaxBytes,
       disablePacketBatching:
           disablePacketBatching ?? this.disablePacketBatching,
       splitTunnelMode: splitTunnelMode ?? this.splitTunnelMode,

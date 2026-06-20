@@ -96,6 +96,7 @@ split_tunnel:
     expect(profile.metrics.fileEnabled, isFalse);
     expect(profile.metrics.fileDir, isEmpty);
     expect(encoded, contains('discovery_relays:'));
+    expect(encoded, contains('config_version: 1'));
     expect(encoded, contains('transport_ports:'));
     expect(encoded, contains('bt-utp: [51821, 51822]'));
     expect(encoded, contains('https-rest: [443]'));
@@ -120,6 +121,47 @@ split_tunnel:
     expect(encoded, isNot(contains('relay_mode')));
     expect(encoded, isNot(contains('slot_start')));
     expect(encoded, isNot(contains('streams')));
+  });
+
+  test('imports, exports, and validates packet padding fields', () {
+    const raw = '''
+user_id: 1
+transport:
+  mode: auto
+tunnel_mtu: 1280
+packet_fragment_payload_bytes: 512
+packet_padding_min_bytes: 24
+packet_padding_max_bytes: 256
+disable_packet_batching: false
+discovery_relays:
+  - id: "relay-main"
+    addr: "relay.example.net"
+    short_id: 1
+    relay_key: "$userKey"
+    transport_ports:
+      bt-utp: [51821]
+servers:
+  - id: "exit-main"
+    key: "$userKey"
+    priority: 1
+''';
+
+    const codec = ClientProfileCodec();
+    final profile = codec.parseRaw(raw);
+    final encoded = codec.encodeYaml(profile);
+
+    expect(profile.packetPaddingMinBytes, 24);
+    expect(profile.packetPaddingMaxBytes, 256);
+    expect(encoded, contains('packet_padding_min_bytes: 24'));
+    expect(encoded, contains('packet_padding_max_bytes: 256'));
+
+    expect(
+      () => codec.parseRaw(
+        raw.replaceFirst(
+            'packet_padding_max_bytes: 256', 'packet_padding_max_bytes: 24'),
+      ),
+      throwsA(isA<FormatException>()),
+    );
   });
 
   test('form state preserves unknown imported fields', () async {
@@ -193,6 +235,8 @@ split_tunnel:
     expect(encoded, contains(disabledMetricsYaml));
     expect(encoded, isNot(contains('future_metrics')));
     expect(encoded, contains('packet_fragment_payload_bytes: 100'));
+    expect(encoded, contains('packet_padding_min_bytes: 0'));
+    expect(encoded, contains('packet_padding_max_bytes: 0'));
     expect(encoded, contains('disable_packet_batching: true'));
     expect(encoded, contains('future_relay: \'kept\''));
     expect(encoded, contains('future_server: \'kept\''));
@@ -440,7 +484,10 @@ split_tunnel:
     expect(profile.windowsApps, isEmpty);
     expect(encoded, contains('network_rescue:'));
     expect(encoded, contains('profile: \'off\''));
+    expect(encoded, contains('config_version: 1'));
     expect(encoded, contains('packet_fragment_payload_bytes: 0'));
+    expect(encoded, contains('packet_padding_min_bytes: 0'));
+    expect(encoded, contains('packet_padding_max_bytes: 0'));
     expect(encoded, contains('disable_packet_batching: false'));
     expect(encoded, contains('apps_win: []'));
     expect(encoded, contains('apps_android: []'));
@@ -524,8 +571,93 @@ split_tunnel:
     expect(encoded, contains('network_rescue:'));
     expect(encoded, contains('enabled: false'));
     expect(encoded, contains("profile: 'off'"));
+    expect(encoded, contains('config_version: 1'));
+    expect(encoded, contains('packet_padding_min_bytes: 0'));
+    expect(encoded, contains('packet_padding_max_bytes: 0'));
     expect(encoded, contains('apps_win: []'));
     expect(encoded, contains('apps_android: []'));
+  });
+
+  test('preserves v1 discovery envelopes and outbound proxy fields', () {
+    const raw = '''
+config_version: 1
+user_id: 1
+server_failback_delay_sec: 60
+transport:
+  mode: auto
+discovery_envelopes:
+  - relay_id: relay-main
+    sealed: "opaque"
+outbound_proxy:
+  enabled: true
+  url: "http://127.0.0.1:8080"
+discovery_relays:
+  - id: "relay-main"
+    addr: "relay.example.net"
+    short_id: 1
+    relay_key: "$userKey"
+    transport_ports:
+      bt-utp: [51821]
+      ws: [51822]
+      https-rest: [443]
+      bt-tcp: [51823]
+servers:
+  - id: "exit-main"
+    key: "$userKey"
+    priority: 1
+split_tunnel:
+  enabled: false
+  apps_mode: whitelist
+  apps_win: []
+  apps_android: []
+''';
+
+    const codec = ClientProfileCodec();
+    final profile = codec.parseCurrentContractRaw(raw);
+    final encoded = codec.encodeYaml(profile);
+
+    expect(encoded, contains('config_version: 1'));
+    expect(encoded, contains('discovery_envelopes:'));
+    expect(encoded, contains('relay_id: \'relay-main\''));
+    expect(encoded, contains('sealed: \'opaque\''));
+    expect(encoded, contains('outbound_proxy:'));
+    expect(encoded, contains('url: \'http://127.0.0.1:8080\''));
+  });
+
+  test('rejects future config version', () {
+    const raw = '''
+config_version: 2
+user_id: 1
+server_failback_delay_sec: 60
+transport:
+  mode: auto
+discovery_relays:
+  - id: "relay-main"
+    addr: "relay.example.net"
+    short_id: 1
+    relay_key: "$userKey"
+    transport_ports:
+      bt-utp: [51821]
+      ws: [51822]
+      https-rest: [443]
+      bt-tcp: [51823]
+servers:
+  - id: "exit-main"
+    key: "$userKey"
+    priority: 1
+split_tunnel:
+  enabled: false
+  apps_mode: whitelist
+  apps_win: []
+  apps_android: []
+''';
+
+    const codec = ClientProfileCodec();
+
+    expect(
+      () => codec.parseCurrentContractRaw(raw),
+      throwsA(isA<ClientProfileContractException>()),
+    );
   });
 
   test('imports split tunnel Windows apps', () {

@@ -16,6 +16,7 @@ app.*.map.json
 
 # Private runtime and release artifacts
 /build-win/
+/build-macos/
 /build-runtime/
 /runtime/
 /dist/

@@ -145,6 +145,7 @@ class _ConnectionAdvancedDetails extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final runtimeStatus = viewModel.runtimeStatus;
     return Column(
       children: [
         StatRow(
@@ -168,6 +169,79 @@ class _ConnectionAdvancedDetails extends StatelessWidget {
           label: textCatalog.t('label.transport_mode'),
           value: viewModel.transportModeLabel(viewModel.transportMode),
         ),
+        if (runtimeStatus.coreState.isNotEmpty) ...[
+          const Hairline(),
+          StatRow(
+            label: textCatalog.t('label.core_state'),
+            value: runtimeStatus.coreState,
+          ),
+        ],
+        if (runtimeStatus.vpnState.isNotEmpty) ...[
+          const Hairline(),
+          StatRow(
+            label: textCatalog.t('label.vpn_state'),
+            value: runtimeStatus.vpnState,
+          ),
+        ],
+        if (runtimeStatus.activeRelayId.isNotEmpty) ...[
+          const Hairline(),
+          StatRow(
+            label: textCatalog.t('label.active_relay'),
+            value: runtimeStatus.activeRelayId,
+          ),
+        ],
+        if (runtimeStatus.activeTransportId.isNotEmpty) ...[
+          const Hairline(),
+          StatRow(
+            label: textCatalog.t('label.active_transport'),
+            value: viewModel
+                .runtimeTransportLabel(runtimeStatus.activeTransportId),
+          ),
+        ],
+        if (runtimeStatus.activeServerId.isNotEmpty) ...[
+          const Hairline(),
+          StatRow(
+            label: textCatalog.t('label.exit_server'),
+            value: runtimeStatus.activeServerId,
+          ),
+        ],
+        if (runtimeStatus.hasRates) ...[
+          if (runtimeStatus.uploadBps > 0) ...[
+            const Hairline(),
+            StatRow(
+              label: textCatalog.t('label.upload_rate'),
+              value: viewModel.rateLabel(runtimeStatus.uploadBps),
+            ),
+          ],
+          if (runtimeStatus.downloadBps > 0) ...[
+            const Hairline(),
+            StatRow(
+              label: textCatalog.t('label.download_rate'),
+              value: viewModel.rateLabel(runtimeStatus.downloadBps),
+            ),
+          ],
+          if (runtimeStatus.aggregateBps > 0) ...[
+            const Hairline(),
+            StatRow(
+              label: textCatalog.t('label.total_rate'),
+              value: viewModel.rateLabel(runtimeStatus.aggregateBps),
+            ),
+          ],
+        ],
+        if (runtimeStatus.protocolDiagnostics.isNotEmpty) ...[
+          const Hairline(),
+          DiagnosticsTextBlock(
+            label: textCatalog.t('label.protocols'),
+            rows: runtimeStatus.protocolDiagnostics,
+          ),
+        ],
+        if (runtimeStatus.endpointDiagnostics.isNotEmpty) ...[
+          const Hairline(),
+          DiagnosticsTextBlock(
+            label: textCatalog.t('label.endpoints'),
+            rows: runtimeStatus.endpointDiagnostics,
+          ),
+        ],
         const Hairline(),
         StatRow(
           label: textCatalog.t('label.relays'),
@@ -209,6 +283,41 @@ class _ConnectionAdvancedDetails extends StatelessWidget {
       return MaydayColors.muted;
     }
     return findings.isEmpty ? MaydayColors.accent : MaydayColors.danger;
+  }
+}
+
+class DiagnosticsTextBlock extends StatelessWidget {
+  const DiagnosticsTextBlock({
+    super.key,
+    required this.label,
+    required this.rows,
+  });
+
+  final String label;
+  final List<String> rows;
+
+  @override
+  Widget build(BuildContext context) {
+    final textTheme = Theme.of(context).textTheme;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label.toUpperCase(),
+          style: textTheme.labelMedium?.copyWith(color: MaydayColors.muted),
+        ),
+        const SizedBox(height: 6),
+        for (final row in rows)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 4),
+            child: Text(
+              row,
+              style: textTheme.bodySmall?.copyWith(color: MaydayColors.text),
+            ),
+          ),
+      ],
+    );
   }
 }
 

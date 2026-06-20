@@ -36,6 +36,10 @@ class AdminElevationService {
   final AppTextCatalog _textCatalog;
 
   Future<AdminBootstrapResult> bootstrap() async {
+    if (!Platform.isWindows) {
+      return const AdminBootstrapResult(isElevated: true);
+    }
+
     final isElevated = await isRunningAsAdministrator();
     if (isElevated) {
       return const AdminBootstrapResult(isElevated: true);
@@ -56,6 +60,10 @@ class AdminElevationService {
   }
 
   Future<bool> isRunningAsAdministrator() async {
+    if (!Platform.isWindows) {
+      return true;
+    }
+
     return using((arena) {
       final tokenHandle = arena<Pointer>();
       final opened = OpenProcessToken(
@@ -86,6 +94,13 @@ class AdminElevationService {
   }
 
   Future<RelaunchResult> restartAsAdministrator() async {
+    if (!Platform.isWindows) {
+      return RelaunchResult(
+        started: false,
+        message: _textCatalog.t('admin.restart_unsupported'),
+      );
+    }
+
     try {
       final started = _shellExecuteRunAs(
         executable: Platform.resolvedExecutable,

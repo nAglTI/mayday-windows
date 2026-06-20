@@ -6,43 +6,32 @@ import 'windows_build_common.dart';
 
 Future<void> main(List<String> args) async {
   final repoRoot = resolveRepoRoot();
+  final platform = RuntimeStagePlatform.parse(
+    optionValue(args, '--platform', defaultValue: 'windows'),
+  );
+  final spec = RuntimeStageSpec.forPlatform(platform);
   final sourceDir = Directory(
     optionValue(
       args,
       '--source-dir',
-      defaultValue: p.join(repoRoot, 'build-win'),
+      defaultValue: spec.defaultSourceDir(repoRoot),
     ),
   );
   final targetDir = Directory(
     optionValue(
       args,
       '--target-dir',
-      defaultValue: p.join(repoRoot, 'build', 'runtime-stage'),
+      defaultValue: spec.defaultTargetDir(repoRoot),
     ),
   );
   final clean = hasFlag(args, '--clean');
-
-  const runtimeFiles = [
-    RuntimeStageFile(
-      outputName: 'mdhelper.exe',
-      sourceNames: ['mdhelper.exe', 'vpnclient.exe'],
-    ),
-    RuntimeStageFile(
-      outputName: 'mdpipectl.exe',
-      sourceNames: ['mdpipectl.exe', 'vpnpipectl.exe'],
-    ),
-    RuntimeStageFile(
-      outputName: 'wintun.dll',
-      sourceNames: ['wintun.dll'],
-    ),
-  ];
 
   if (!sourceDir.existsSync()) {
     throw StateError('Runtime source directory not found: ${sourceDir.path}');
   }
 
   final stagedFiles = <_ResolvedRuntimeStageFile>[];
-  for (final runtimeFile in runtimeFiles) {
+  for (final runtimeFile in spec.runtimeFiles) {
     final sourceFile = _resolveSourceFile(sourceDir, runtimeFile);
     if (sourceFile == null) {
       throw StateError(
@@ -59,7 +48,7 @@ Future<void> main(List<String> args) async {
   }
 
   if (clean && targetDir.existsSync()) {
-    await _removeStaleFiles(sourceDir, targetDir, stagedFiles);
+    await _removeStaleFiles(spec, sourceDir, targetDir, stagedFiles);
   }
 
   await targetDir.create(recursive: true);
@@ -72,7 +61,7 @@ Future<void> main(List<String> args) async {
   }
 
   final reservedNames = <String>{
-    for (final runtimeFile in runtimeFiles)
+    for (final runtimeFile in spec.runtimeFiles)
       for (final sourceName in runtimeFile.sourceNames) sourceName,
   };
   await for (final entity in sourceDir.list(recursive: false)) {
@@ -96,6 +85,7 @@ Future<void> main(List<String> args) async {
 }
 
 Future<void> _removeStaleFiles(
+  RuntimeStageSpec spec,
   Directory sourceDir,
   Directory targetDir,
   List<_ResolvedRuntimeStageFile> stagedFiles,
@@ -109,12 +99,7 @@ Future<void> _removeStaleFiles(
     }
   }
   for (final stagedFile in stagedFiles) {
-    for (final alias in [
-      'vpnclient.exe',
-      'vpnpipectl.exe',
-      'mdschelper.exe',
-      stagedFile.outputName,
-    ]) {
+    for (final alias in [...spec.staleAliases, stagedFile.outputName]) {
       expectedFiles.remove(alias);
     }
     expectedFiles.add(stagedFile.outputName);
@@ -158,6 +143,97 @@ bool _sameFileContent(File left, File right) {
     }
   }
   return true;
+}
+
+enum RuntimeStagePlatform {
+  windows,
+  macos;
+
+  static RuntimeStagePlatform parse(String value) {
+    final normalized = value.trim().toLowerCase();
+    return switch (normalized) {
+      'windows' || 'win' => RuntimeStagePlatform.windows,
+      'macos' || 'mac' || 'darwin' => RuntimeStagePlatform.macos,
+      _ => throw ArgumentError.value(
+          value,
+          '--platform',
+          'Expected one of: windows, macos',
+        ),
+    };
+  }
+}
+
+class RuntimeStageSpec {
+  const RuntimeStageSpec({
+    required this.runtimeFiles,
+    required this.sourceDirName,
+    required this.targetSegments,
+    required this.staleAliases,
+  });
+
+  factory RuntimeStageSpec.forPlatform(RuntimeStagePlatform platform) {
+    return switch (platform) {
+      RuntimeStagePlatform.windows => windows,
+      RuntimeStagePlatform.macos => macos,
+    };
+  }
+
+  static const windows = RuntimeStageSpec(
+    sourceDirName: 'build-win',
+    targetSegments: ['build', 'runtime-stage'],
+    runtimeFiles: [
+      RuntimeStageFile(
+        outputName: 'mdhelper.exe',
+        sourceNames: ['mdhelper.exe', 'vpnclient.exe'],
+      ),
+      RuntimeStageFile(
+        outputName: 'mdpipectl.exe',
+        sourceNames: ['mdpipectl.exe', 'vpnpipectl.exe'],
+      ),
+      RuntimeStageFile(
+        outputName: 'wintun.dll',
+        sourceNames: ['wintun.dll'],
+      ),
+    ],
+    staleAliases: [
+      'vpnclient.exe',
+      'vpnpipectl.exe',
+      'mdschelper.exe',
+    ],
+  );
+
+  static const macos = RuntimeStageSpec(
+    sourceDirName: 'build-macos',
+    targetSegments: ['build', 'runtime-stage', 'macos'],
+    runtimeFiles: [
+      RuntimeStageFile(
+        outputName: 'mdhelper',
+        sourceNames: ['mdhelper', 'vpnclient'],
+      ),
+      RuntimeStageFile(
+        outputName: 'mdpipectl',
+        sourceNames: ['mdpipectl', 'vpnpipectl'],
+      ),
+    ],
+    staleAliases: [
+      'vpnclient',
+      'vpnpipectl',
+      'mdschelper',
+    ],
+  );
+
+  final List<RuntimeStageFile> runtimeFiles;
+  final String sourceDirName;
+  final List<String> targetSegments;
+  final List<String> staleAliases;
+
+  String defaultSourceDir(String repoRoot) {
+    return p.join(repoRoot, sourceDirName);
+  }
+
+  String defaultTargetDir(String repoRoot) {
+    return p.joinAll([repoRoot, ...targetSegments]);
+  }
 }
 
 class RuntimeStageFile {
