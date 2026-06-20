@@ -147,6 +147,7 @@ class _ConnectionAdvancedDetails extends StatelessWidget {
   Widget build(BuildContext context) {
     final runtimeStatus = viewModel.runtimeStatus;
     return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         StatRow(
           label: textCatalog.t('label.config'),
@@ -169,6 +170,14 @@ class _ConnectionAdvancedDetails extends StatelessWidget {
           label: textCatalog.t('label.transport_mode'),
           value: viewModel.transportModeLabel(viewModel.transportMode),
         ),
+        if (viewModel.isRuntimeStarted && !runtimeStatus.hasData) ...[
+          const Hairline(),
+          StatRow(
+            label: textCatalog.t('label.runtime_status'),
+            value: textCatalog.t('status.runtime_status_waiting'),
+            accent: MaydayColors.muted,
+          ),
+        ],
         if (runtimeStatus.coreState.isNotEmpty) ...[
           const Hairline(),
           StatRow(

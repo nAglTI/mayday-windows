@@ -34,6 +34,14 @@ class RuntimeStatusSnapshot {
 
   bool get hasRates => uploadBps > 0 || downloadBps > 0 || aggregateBps > 0;
 
+  bool get hasData =>
+      coreState.isNotEmpty ||
+      vpnState.isNotEmpty ||
+      hasActiveRoute ||
+      hasRates ||
+      protocolDiagnostics.isNotEmpty ||
+      endpointDiagnostics.isNotEmpty;
+
   static RuntimeStatusSnapshot? tryParse(String rawStatus) {
     final trimmed = rawStatus.trim();
     if (trimmed.isEmpty) {
@@ -47,7 +55,7 @@ class RuntimeStatusSnapshot {
       }
       return fromJson(decoded);
     } catch (_) {
-      return null;
+      return _tryParseLineStatus(trimmed);
     }
   }
 
@@ -58,6 +66,7 @@ class RuntimeStatusSnapshot {
       'active_transport',
       'active_protocol',
       'active_transport_id',
+      'transport',
     ]);
     final uploadBps = _firstPositiveDouble(json, _uploadRateFields);
     final downloadBps = _firstPositiveDouble(json, _downloadRateFields);
@@ -84,16 +93,19 @@ class RuntimeStatusSnapshot {
 
     return RuntimeStatusSnapshot(
       coreState: _stringValue(json['state']),
-      vpnState: _stringValue(json['vpn_state']),
+      vpnState: _firstString(json, const ['vpn_state', 'vpn']),
       activeRelayId: _firstString(json, const [
         'active_relay_id',
         'active_relay',
+        'relay',
       ]),
       activeTransportId: activeTransportId,
       activeServerId: _firstString(json, const [
         'active_server_id',
         'active_exit_id',
         'active_exit',
+        'exit',
+        'server',
       ]),
       uploadBps: fallbackUploadBps,
       downloadBps: fallbackDownloadBps,
@@ -125,6 +137,52 @@ class RuntimeStatusSnapshot {
     return raw;
   }
 
+  static RuntimeStatusSnapshot? _tryParseLineStatus(String raw) {
+    final header = <String, Object?>{};
+    final protocols = <Map<String, Object?>>[];
+    final endpoints = <Map<String, Object?>>[];
+
+    for (final line in raw.split(RegExp(r'\r?\n'))) {
+      final fields = _parseKeyValueLine(line);
+      if (fields.isEmpty) {
+        continue;
+      }
+
+      if (fields.containsKey('endpoint')) {
+        endpoints.add({
+          ...fields,
+          'id': fields['endpoint'],
+          if (fields.containsKey('proto')) 'transport': fields['proto'],
+        });
+      } else if (fields.containsKey('proto')) {
+        protocols.add({
+          ...fields,
+          'id': fields['proto'],
+        });
+      } else {
+        header.addAll(fields);
+      }
+    }
+
+    if (header.isEmpty && protocols.isEmpty && endpoints.isEmpty) {
+      return null;
+    }
+
+    return fromJson({
+      ...header,
+      'protocols': protocols,
+      'endpoints': endpoints,
+    });
+  }
+
+  static Map<String, Object?> _parseKeyValueLine(String line) {
+    final fields = <String, Object?>{};
+    for (final match in RegExp(r'([A-Za-z0-9_]+)=([^\s]+)').allMatches(line)) {
+      fields[match.group(1)!] = match.group(2)!;
+    }
+    return fields;
+  }
+
   static List<String> _summarizeProtocols(
     List<Map<String, Object?>> protocols, {
     required String activeTransportId,
@@ -136,6 +194,7 @@ class RuntimeStatusSnapshot {
         'protocol',
         'protocol_id',
         'transport',
+        'proto',
       ]);
       if (id.isEmpty) {
         continue;
@@ -197,6 +256,7 @@ class RuntimeStatusSnapshot {
       ]);
       final transportId = _firstString(item, const [
         'transport',
+        'proto',
         'protocol',
         'protocol_id',
         'protocolId',
@@ -353,7 +413,11 @@ class RuntimeStatusSnapshot {
   }
 
   static double _positiveDouble(Object? raw) {
-    final value = raw is num ? raw.toDouble() : double.tryParse('$raw'.trim());
+    final normalized = '$raw'.trim();
+    if (normalized == '-' || normalized.isEmpty) {
+      return 0;
+    }
+    final value = raw is num ? raw.toDouble() : double.tryParse(normalized);
     if (value == null || value.isNaN || value.isInfinite || value <= 0) {
       return 0;
     }
@@ -371,6 +435,7 @@ class RuntimeStatusSnapshot {
     'uplink_bps',
     'tx_bps',
     'send_bps',
+    'up',
   ];
   static const _downloadRateFields = [
     'download_bps',
@@ -378,12 +443,15 @@ class RuntimeStatusSnapshot {
     'downlink_bps',
     'rx_bps',
     'receive_bps',
+    'down',
   ];
   static const _aggregateRateFields = [
     'aggregate_throughput_bps',
     'throughput_bps',
     'quick_probe_throughput_bps',
     'bps',
+    'throughput',
+    'quick',
   ];
   static const _rttFields = [
     'rtt_ms',

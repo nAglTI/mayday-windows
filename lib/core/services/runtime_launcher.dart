@@ -339,6 +339,7 @@ class RuntimeLauncher {
         _activeLogPipes = pipes.done;
         _activeConfigFingerprint = configInspection.fingerprint;
         _setVpnActive(false);
+        _startStatusPolling(paths);
         unawaited(_observeProcessExit(paths, process, pipes.done));
 
         final transports = await _controlClient.send(
@@ -461,7 +462,6 @@ class RuntimeLauncher {
     }
 
     _setVpnActive(true);
-    _startStatusPolling(paths);
     return LaunchResult(
       success: true,
       message: _messageWithOptionalLog(
@@ -637,9 +637,6 @@ class RuntimeLauncher {
       return;
     }
     _vpnActive = value;
-    if (!value) {
-      _stopStatusPolling(clearStatus: true);
-    }
     _runningStateController.add(value);
   }
 
@@ -662,7 +659,7 @@ class RuntimeLauncher {
   }
 
   Future<void> _pollRuntimeStatus(RuntimePaths paths) async {
-    if (_statusPollInFlight || _activeProcess == null || !_vpnActive) {
+    if (_statusPollInFlight || _activeProcess == null) {
       return;
     }
     _statusPollInFlight = true;
