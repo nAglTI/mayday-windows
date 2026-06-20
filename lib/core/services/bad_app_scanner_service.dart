@@ -69,7 +69,7 @@ class BadAppScannerService {
 
   Future<List<BadAppFinding>> scan() async {
     if (!Platform.isWindows) {
-      throw UnsupportedError('Bad app scanner is available on Windows only.');
+      return const [];
     }
 
     final keywords = _normalizeKeywords(_blockedKeywords);

@@ -320,6 +320,18 @@ class RuntimeOptionsPanel extends StatelessWidget {
           onTextChanged: viewModel.setPacketFragmentPayloadFromText,
           onPresetChanged: viewModel.setPacketFragmentPayloadBytes,
         ),
+        const SizedBox(height: 14),
+        PacketPaddingField(
+          textCatalog: textCatalog,
+          enabled: enabled,
+          minController: viewModel.packetPaddingMinController,
+          maxController: viewModel.packetPaddingMaxController,
+          minBytes: viewModel.packetPaddingMinBytes,
+          maxBytes: viewModel.packetPaddingMaxBytes,
+          onMinTextChanged: viewModel.setPacketPaddingMinFromText,
+          onMaxTextChanged: viewModel.setPacketPaddingMaxFromText,
+          onPresetChanged: viewModel.setPacketPaddingRange,
+        ),
         const SizedBox(height: 10),
         SwitchListTile(
           contentPadding: EdgeInsets.zero,
@@ -414,6 +426,123 @@ class PacketFragmentPayloadField extends StatelessWidget {
     }
     return bestIndex;
   }
+}
+
+class PacketPaddingField extends StatelessWidget {
+  const PacketPaddingField({
+    super.key,
+    required this.textCatalog,
+    required this.enabled,
+    required this.minController,
+    required this.maxController,
+    required this.minBytes,
+    required this.maxBytes,
+    required this.onMinTextChanged,
+    required this.onMaxTextChanged,
+    required this.onPresetChanged,
+  });
+
+  static const _presets = [
+    _PacketPaddingPreset(
+      labelKey: 'label.packet_padding_off',
+      minBytes: 0,
+      maxBytes: 0,
+    ),
+    _PacketPaddingPreset(
+      labelKey: 'label.packet_padding_light',
+      minBytes: 0,
+      maxBytes: 128,
+    ),
+    _PacketPaddingPreset(
+      labelKey: 'label.packet_padding_strong',
+      minBytes: 24,
+      maxBytes: 256,
+    ),
+  ];
+
+  final AppTextCatalog textCatalog;
+  final bool enabled;
+  final TextEditingController minController;
+  final TextEditingController maxController;
+  final int minBytes;
+  final int maxBytes;
+  final ValueChanged<String> onMinTextChanged;
+  final ValueChanged<String> onMaxTextChanged;
+  final void Function(int minBytes, int maxBytes) onPresetChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final textTheme = Theme.of(context).textTheme;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          textCatalog.t('label.packet_padding').toUpperCase(),
+          style: textTheme.labelMedium?.copyWith(color: MaydayColors.muted),
+        ),
+        const SizedBox(height: 8),
+        Row(
+          children: [
+            Expanded(
+              child: MaydayTextField(
+                label: textCatalog.t('label.packet_padding_min'),
+                controller: minController,
+                enabled: enabled,
+                keyboardType: TextInputType.number,
+                onChanged: onMinTextChanged,
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: MaydayTextField(
+                label: textCatalog.t('label.packet_padding_max'),
+                controller: maxController,
+                enabled: enabled,
+                keyboardType: TextInputType.number,
+                onChanged: onMaxTextChanged,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            for (final preset in _presets)
+              ChoiceChip(
+                label: Text(textCatalog.t(preset.labelKey)),
+                selected:
+                    preset.minBytes == minBytes && preset.maxBytes == maxBytes,
+                onSelected: enabled
+                    ? (_) {
+                        onPresetChanged(preset.minBytes, preset.maxBytes);
+                      }
+                    : null,
+              ),
+          ],
+        ),
+        const SizedBox(height: 6),
+        Text(
+          textCatalog.t('label.packet_padding_helper'),
+          style: textTheme.bodySmall?.copyWith(color: MaydayColors.muted),
+        ),
+      ],
+    );
+  }
+}
+
+class _PacketPaddingPreset {
+  const _PacketPaddingPreset({
+    required this.labelKey,
+    required this.minBytes,
+    required this.maxBytes,
+  });
+
+  final String labelKey;
+  final int minBytes;
+  final int maxBytes;
 }
 
 class RelayNameList extends StatelessWidget {

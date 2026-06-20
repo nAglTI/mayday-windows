@@ -18,7 +18,7 @@ This README describes the application at a product level and intentionally avoid
 - Optional Windows autostart for opening the app after sign-in.
 - App selection controls for split routing.
 - Background app-risk scanning with saved results and a pre-connect risk dialog.
-- Advanced controls for transport mode, network rescue mode, MTU, packet fragmentation, packet batching, and optional metrics.
+- Advanced controls for transport mode, network rescue mode, MTU, packet fragmentation, packet padding, packet batching, and optional metrics.
 - GitHub Releases update check with a dismissible update banner.
 - Diagnostics screen for user-facing readiness and file availability checks.
 - Administrator gate with a guided restart flow when elevated permissions are required.
@@ -39,7 +39,7 @@ The settings area groups the controls a user is expected to adjust:
 
 - App launch behavior.
 - Imported profile identity, shown read-only.
-- Transport mode, advanced network protection options, and optional metrics.
+- Transport mode, advanced network protection options including packet padding, and optional metrics.
 - Split routing Windows application selection.
 - Diagnostics and readiness information.
 - Language selection.
@@ -48,7 +48,7 @@ Most users should only need the import controls, the main connect button, and th
 
 ## Release Notes
 
-See [docs/release-notes-2.1.0.md](docs/release-notes-2.1.0.md) for the current release notes.
+See [docs/release-notes-2.1.1.md](docs/release-notes-2.1.1.md) for the current Windows release notes.
 
 ## Flutter Layer
 

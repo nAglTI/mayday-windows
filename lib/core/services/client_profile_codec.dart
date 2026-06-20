@@ -29,8 +29,10 @@ class ClientProfileCodec {
   static const _defaultDns = '1.1.1.1';
   static final _plainYamlKey = RegExp(r'^[A-Za-z_][A-Za-z0-9_-]*$');
   static final _serverKeyPattern = RegExp(r'^[0-9a-fA-F]{64}$');
+  static const _supportedConfigVersion = 1;
 
   static const _topLevelKeys = {
+    'config_version',
     'user_id',
     'tun_name',
     'dns',
@@ -41,6 +43,8 @@ class ClientProfileCodec {
     'disable_ipv6',
     'tunnel_mtu',
     'packet_fragment_payload_bytes',
+    'packet_padding_min_bytes',
+    'packet_padding_max_bytes',
     'disable_packet_batching',
     'discovery_relays',
     'transport',
@@ -114,6 +118,7 @@ class ClientProfileCodec {
 
     final userId = int.parse(profile.userId.trim());
     final root = <String, Object?>{
+      'config_version': _supportedConfigVersion,
       'user_id': userId,
       'server_failback_delay_sec': profile.serverFailbackDelaySec,
       'transport': _encodeTransport(profile.transport),
@@ -124,6 +129,8 @@ class ClientProfileCodec {
       'disable_ipv6': profile.disableIpv6,
       'tunnel_mtu': profile.tunnelMtu,
       'packet_fragment_payload_bytes': profile.packetFragmentPayloadBytes,
+      'packet_padding_min_bytes': profile.packetPaddingMinBytes,
+      'packet_padding_max_bytes': profile.packetPaddingMaxBytes,
       'disable_packet_batching': profile.disablePacketBatching,
       'discovery_relays': _encodeRelays(profile.relays),
       'servers': _encodeServers(profile.servers),
@@ -154,6 +161,14 @@ class ClientProfileCodec {
     if (!_validPacketFragmentPayload(profile.packetFragmentPayloadBytes)) {
       throw FormatException(
         _textCatalog.t('codec.packet_fragment_payload_invalid'),
+      );
+    }
+    if (!_validPacketPadding(
+      profile.packetPaddingMinBytes,
+      profile.packetPaddingMaxBytes,
+    )) {
+      throw FormatException(
+        _textCatalog.t('codec.packet_padding_invalid'),
       );
     }
     if (profile.relays.isEmpty) {
@@ -214,6 +229,13 @@ class ClientProfileCodec {
   }
 
   void _validateCurrentContract(Map<String, Object?> map) {
+    final configVersion = _parseInt(map['config_version']) ?? 0;
+    if (configVersion > _supportedConfigVersion) {
+      throw ClientProfileContractException(
+        _textCatalog.t('codec.contract_config_version_unsupported'),
+      );
+    }
+
     if (!map.containsKey('discovery_relays')) {
       if (map.containsKey('relays')) {
         throw ClientProfileContractException(
@@ -325,6 +347,8 @@ class ClientProfileCodec {
       tunnelMtu: _parseInt(map['tunnel_mtu']) ?? 1280,
       packetFragmentPayloadBytes:
           _parseInt(map['packet_fragment_payload_bytes']) ?? 0,
+      packetPaddingMinBytes: _parseInt(map['packet_padding_min_bytes']) ?? 0,
+      packetPaddingMaxBytes: _parseInt(map['packet_padding_max_bytes']) ?? 0,
       disablePacketBatching: _readBool(map['disable_packet_batching']),
       splitTunnelMode: splitMode,
       windowsApps: _windowsAppsFromSplitTunnel(splitTunnel),
@@ -593,6 +617,16 @@ class ClientProfileCodec {
 
   bool _validPacketFragmentPayload(int value) {
     return value == 0 || (value >= 64 && value <= 65536);
+  }
+
+  bool _validPacketPadding(int minBytes, int maxBytes) {
+    if (minBytes < 0 || maxBytes < 0 || minBytes > 1200 || maxBytes > 1200) {
+      return false;
+    }
+    if (minBytes > maxBytes) {
+      return false;
+    }
+    return minBytes == 0 || minBytes < maxBytes;
   }
 
   Map<String, Object?> _toMap(dynamic rawValue) {

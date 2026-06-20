@@ -5,6 +5,7 @@ import '../../../core/models/running_windows_app.dart';
 import '../../../core/models/client_profile.dart';
 import '../../../core/models/metrics_config.dart';
 import '../../../core/models/runtime_paths.dart';
+import '../../../core/models/runtime_status_snapshot.dart';
 import '../../../core/models/split_tunnel_mode.dart';
 import '../../../core/models/bad_app_scan_result.dart';
 import '../../../core/models/app_update_info.dart';
@@ -160,6 +161,9 @@ class ClientController {
   bool get isRunning => _launcher.isRunning;
 
   Stream<bool> get runningChanges => _launcher.runningChanges;
+
+  Stream<RuntimeStatusSnapshot> get runtimeStatusChanges =>
+      _launcher.runtimeStatusChanges;
 
   Future<void> setAutoStartEnabled(bool enabled) async {
     await _autostartService.setEnabled(enabled);

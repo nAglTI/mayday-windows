@@ -1,4 +1,5 @@
 import 'dart:ffi';
+import 'dart:io';
 
 import 'package:ffi/ffi.dart';
 import 'package:win32/win32.dart';
@@ -13,6 +14,12 @@ class WindowsAppSelectionService {
   final AppTextCatalog _textCatalog;
 
   Future<String?> pickExecutablePath() async {
+    if (!Platform.isWindows) {
+      throw UnsupportedError(
+        _textCatalog.t('error.executable_picker_unsupported'),
+      );
+    }
+
     return _showOpenFileDialog(
       title: _textCatalog.t('button.choose_exe'),
       filterPairs: [
@@ -23,7 +30,14 @@ class WindowsAppSelectionService {
     );
   }
 
-  Future<List<RunningWindowsApp>> listRunningApps() async {const maxProcesses = 32768;
+  Future<List<RunningWindowsApp>> listRunningApps() async {
+    if (!Platform.isWindows) {
+      throw UnsupportedError(
+        _textCatalog.t('error.running_list_unsupported'),
+      );
+    }
+
+    const maxProcesses = 32768;
     final apps = <RunningWindowsApp>[];
     final seen = <String>{};
 

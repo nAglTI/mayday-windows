@@ -1,8 +1,8 @@
 name: mayday_windows
-description: Flutter Windows shell for mayday client runtime.
+description: Flutter desktop shell for Mayday client runtime.
 publish_to: 'none'
 
-version: 2.1.0+1
+version: 2.1.1+1
 
 environment:
   sdk: '>=3.4.0 <4.0.0'

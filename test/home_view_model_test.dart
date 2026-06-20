@@ -8,6 +8,7 @@ import 'package:mayday_windows/core/l10n/app_texts.dart';
 import 'package:mayday_windows/core/models/bad_app_finding.dart';
 import 'package:mayday_windows/core/models/network_rescue_config.dart';
 import 'package:mayday_windows/core/models/runtime_paths.dart';
+import 'package:mayday_windows/core/models/runtime_status_snapshot.dart';
 import 'package:mayday_windows/core/services/app_autostart_service.dart';
 import 'package:mayday_windows/core/services/app_update_service.dart';
 import 'package:mayday_windows/core/services/bad_app_scan_result_storage.dart';
@@ -92,6 +93,44 @@ void main() {
     expect(viewModel.badAppFindings, isEmpty);
     expect(viewModel.isBadAppPreflightPassed, isTrue);
     expect(scanner.scanCount, 1);
+  });
+
+  test('runtime status updates active transport and exit analytics', () async {
+    final tempDir = await Directory.systemTemp.createTemp('mayday-home-vm-');
+    addTearDown(() => tempDir.delete(recursive: true));
+
+    final launcher = _FakeRuntimeLauncher();
+    addTearDown(launcher.dispose);
+
+    final viewModel = _createViewModel(
+      root: tempDir.path,
+      scanner: _FakeBadAppScannerService(findings: const []),
+      launcher: launcher,
+    );
+    addTearDown(viewModel.dispose);
+
+    launcher.emitStatus(
+      const RuntimeStatusSnapshot(
+        coreState: 'vpn_connected',
+        vpnState: 'active',
+        activeRelayId: 'relay-eu-1',
+        activeTransportId: 'https-rest',
+        activeServerId: 'exit-main',
+        uploadBps: 1200000,
+      ),
+    );
+    await _waitUntil(() => viewModel.runtimeStatus.activeServerId.isNotEmpty);
+
+    expect(viewModel.runtimeStatus.activeRelayId, 'relay-eu-1');
+    expect(viewModel.runtimeStatus.activeTransportId, 'https-rest');
+    expect(viewModel.runtimeStatus.activeServerId, 'exit-main');
+    expect(viewModel.runtimeTransportLabel('https-rest'), 'HTTPS REST');
+    expect(viewModel.rateLabel(viewModel.runtimeStatus.uploadBps), '1.2 Mbps');
+
+    launcher.emitStatus(RuntimeStatusSnapshot.empty);
+    await _waitUntil(() => viewModel.runtimeStatus.activeServerId.isEmpty);
+
+    expect(viewModel.runtimeStatus.hasActiveRoute, isFalse);
   });
 
   test('foreground scan findings warn but do not mark launch as blocked',
@@ -292,6 +331,8 @@ steady_state_benchmark_enabled: true
 disable_ipv6: true
 tunnel_mtu: 100
 packet_fragment_payload_bytes: 100
+packet_padding_min_bytes: 24
+packet_padding_max_bytes: 256
 disable_packet_batching: true
 metrics:
   enabled: true
@@ -330,10 +371,13 @@ split_tunnel:
     expect(viewModel.disableIpv6, isTrue);
     expect(viewModel.tunnelMtuController.text, '100');
     expect(viewModel.packetFragmentPayloadController.text, '100');
+    expect(viewModel.packetPaddingMinController.text, '24');
+    expect(viewModel.packetPaddingMaxController.text, '256');
     expect(viewModel.disablePacketBatching, isTrue);
     expect(viewModel.metricsEnabled, isFalse);
 
     viewModel.setPacketFragmentPayloadBytes(512);
+    viewModel.setPacketPaddingRange(0, 128);
     viewModel.setNetworkRescueProfile(NetworkRescueProfile.extreme);
     viewModel.setMetricsEnabled(true);
     viewModel.tunnelMtuController.text = '1500';
@@ -343,6 +387,8 @@ split_tunnel:
     expect(profile.networkRescue.profile, NetworkRescueProfile.extreme);
     expect(profile.tunnelMtu, 1500);
     expect(profile.packetFragmentPayloadBytes, 512);
+    expect(profile.packetPaddingMinBytes, 0);
+    expect(profile.packetPaddingMaxBytes, 128);
     expect(profile.disablePacketBatching, isTrue);
     expect(profile.metrics.enabled, isTrue);
     expect(profile.metrics.fileEnabled, isFalse);
@@ -444,6 +490,8 @@ class _FakeAppAutostartService extends AppAutostartService {
 
 class _FakeRuntimeLauncher extends RuntimeLauncher {
   final _runningChanges = StreamController<bool>.broadcast();
+  final _runtimeStatusChanges =
+      StreamController<RuntimeStatusSnapshot>.broadcast();
 
   @override
   bool get isRunning => false;
@@ -452,12 +500,21 @@ class _FakeRuntimeLauncher extends RuntimeLauncher {
   Stream<bool> get runningChanges => _runningChanges.stream;
 
   @override
+  Stream<RuntimeStatusSnapshot> get runtimeStatusChanges =>
+      _runtimeStatusChanges.stream;
+
+  @override
   Future<StopResult> shutdown() async {
     return const StopResult(success: true, message: 'stopped');
   }
 
+  void emitStatus(RuntimeStatusSnapshot snapshot) {
+    _runtimeStatusChanges.add(snapshot);
+  }
+
   void dispose() {
     _runningChanges.close();
+    _runtimeStatusChanges.close();
   }
 }
 

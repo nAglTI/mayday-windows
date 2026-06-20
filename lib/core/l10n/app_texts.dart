@@ -160,7 +160,10 @@ class AppTextCatalog {
       'label.relays': 'реле',
       'label.servers': 'серверы',
       'label.server': 'сервер',
+      'label.exit_server': 'выходной сервер',
       'label.config': 'конфиг',
+      'label.core_state': 'состояние ядра',
+      'label.vpn_state': 'состояние туннеля',
       'label.tun_name': 'tun',
       'label.dns': 'dns',
       'label.mode': 'режим',
@@ -172,6 +175,13 @@ class AppTextCatalog {
       'label.transport_ws': 'WebSocket',
       'label.transport_https': 'HTTPS REST',
       'label.transport_raw_udp': 'Raw UDP (rescue)',
+      'label.active_relay': 'активное реле',
+      'label.active_transport': 'активный протокол',
+      'label.upload_rate': 'исходящая скорость',
+      'label.download_rate': 'входящая скорость',
+      'label.total_rate': 'общая скорость',
+      'label.protocols': 'протоколы',
+      'label.endpoints': 'точки подключения',
       'label.failback_delay': 'задержка возврата',
       'label.failback_delay_helper':
           '-1 отключает автовозврат, 0 включает дефолт 60 секунд.',
@@ -192,6 +202,14 @@ class AppTextCatalog {
       'label.packet_fragment_payload_helper':
           '0 отключает дробление. Диапазон защиты: 64–65536 байт.',
       'label.packet_fast': 'быстро',
+      'label.packet_padding': 'Padding пакетов',
+      'label.packet_padding_min': 'Минимум padding',
+      'label.packet_padding_max': 'Максимум padding',
+      'label.packet_padding_helper':
+          '0/0 отключает padding. Диапазон: 0–1200 байт, положительный минимум должен быть меньше максимума.',
+      'label.packet_padding_off': 'Отключено',
+      'label.packet_padding_light': 'Легкий',
+      'label.packet_padding_strong': 'Усиленный',
       'label.disable_packet_batching': 'Отключить batching пакетов',
       'label.metrics_enabled': 'Включить метрики',
       'label.priority': 'приоритет',
@@ -347,6 +365,8 @@ class AppTextCatalog {
           'transport.mode не поддерживается текущей версией Mayday.',
       'codec.contract_network_rescue_profile_unsupported':
           'network_rescue.profile не поддерживается текущей версией Mayday.',
+      'codec.contract_config_version_unsupported':
+          'Этот ключ доступа создан для более новой версии Mayday. Обновите приложение или получите совместимый ключ.',
       'codec.contract_current_field_required':
           'В конфиге нет обязательного поля {field}.',
       'codec.json_objects_only': 'Поддерживаются только JSON-объекты.',
@@ -361,6 +381,8 @@ class AppTextCatalog {
           'tunnel_mtu должен быть от 1280 до 1500, либо от 100 до 1500 при disable_ipv6=true.',
       'codec.packet_fragment_payload_invalid':
           'packet_fragment_payload_bytes должен быть 0 или числом от 64 до 65536.',
+      'codec.packet_padding_invalid':
+          'packet_padding_min_bytes и packet_padding_max_bytes должны быть от 0 до 1200, а положительный минимум должен быть меньше максимума.',
       'codec.relay_required': 'Должно быть хотя бы одно реле.',
       'codec.relay_addr_required': 'Требуется адрес реле.',
       'codec.relay_short_id_invalid':
@@ -497,7 +519,10 @@ class AppTextCatalog {
       'label.relays': 'relays',
       'label.servers': 'servers',
       'label.server': 'server',
+      'label.exit_server': 'exit server',
       'label.config': 'config',
+      'label.core_state': 'core state',
+      'label.vpn_state': 'VPN tunnel',
       'label.tun_name': 'tun',
       'label.dns': 'dns',
       'label.mode': 'mode',
@@ -509,6 +534,13 @@ class AppTextCatalog {
       'label.transport_ws': 'WebSocket',
       'label.transport_https': 'HTTPS REST',
       'label.transport_raw_udp': 'Raw UDP (rescue)',
+      'label.active_relay': 'active relay',
+      'label.active_transport': 'active protocol',
+      'label.upload_rate': 'upload',
+      'label.download_rate': 'download',
+      'label.total_rate': 'total',
+      'label.protocols': 'protocols',
+      'label.endpoints': 'endpoints',
       'label.failback_delay': 'failback delay',
       'label.failback_delay_helper':
           '-1 disables automatic failback, 0 uses the 60-second default.',
@@ -529,6 +561,14 @@ class AppTextCatalog {
       'label.packet_fragment_payload_helper':
           '0 disables fragmentation. Protection range: 64-65536 bytes.',
       'label.packet_fast': 'fast',
+      'label.packet_padding': 'Packet padding',
+      'label.packet_padding_min': 'Minimum padding',
+      'label.packet_padding_max': 'Maximum padding',
+      'label.packet_padding_helper':
+          '0/0 disables padding. Range: 0-1200 bytes, and a positive minimum must be lower than the maximum.',
+      'label.packet_padding_off': 'Off',
+      'label.packet_padding_light': 'Light',
+      'label.packet_padding_strong': 'Strong',
       'label.disable_packet_batching': 'Disable packet batching',
       'label.metrics_enabled': 'Enable metrics',
       'label.priority': 'priority',
@@ -680,6 +720,8 @@ class AppTextCatalog {
           'transport.mode is not supported by this Mayday version.',
       'codec.contract_network_rescue_profile_unsupported':
           'network_rescue.profile is not supported by this Mayday version.',
+      'codec.contract_config_version_unsupported':
+          'This access key was created for a newer Mayday version. Update the app or get a compatible key.',
       'codec.contract_current_field_required':
           'Config is missing required field {field}.',
       'codec.json_objects_only': 'Only JSON objects are supported.',
@@ -692,6 +734,8 @@ class AppTextCatalog {
           'tunnel_mtu must be between 1280 and 1500, or between 100 and 1500 when disable_ipv6=true.',
       'codec.packet_fragment_payload_invalid':
           'packet_fragment_payload_bytes must be 0 or between 64 and 65536.',
+      'codec.packet_padding_invalid':
+          'packet_padding_min_bytes and packet_padding_max_bytes must be between 0 and 1200, and a positive minimum must be lower than the maximum.',
       'codec.relay_required': 'At least one relay is required.',
       'codec.relay_addr_required': 'Relay address is required.',
       'codec.relay_short_id_invalid':

@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:path/path.dart' as p;
 
+import '../models/runtime_status_snapshot.dart';
 import '../models/runtime_paths.dart';
 import '../l10n/app_texts.dart';
 import 'runtime_process_job.dart';
@@ -53,6 +54,8 @@ class RuntimeLauncher {
   static const _pipeWaitTimeout = Duration(seconds: 30);
   static const _commandWaitTimeout = Duration(seconds: 45);
   static const _logFlushTimeout = Duration(seconds: 2);
+  static const _statusPollInterval = Duration(seconds: 2);
+  static const _statusPollTimeout = Duration(seconds: 3);
 
   final RuntimePathsService _runtimePathsService;
   final RuntimeDiagnosticsLogger _diagnosticsLogger;
@@ -60,16 +63,23 @@ class RuntimeLauncher {
   final RuntimeControlClient _controlClient;
   AppTextCatalog _textCatalog;
   final _runningStateController = StreamController<bool>.broadcast();
+  final _runtimeStatusController =
+      StreamController<RuntimeStatusSnapshot>.broadcast();
   Process? _activeProcess;
   Future<List<void>>? _activeLogPipes;
+  Timer? _statusPollTimer;
   int? _activeConfigFingerprint;
   bool _vpnActive = false;
+  bool _statusPollInFlight = false;
 
   void updateTextCatalog(AppTextCatalog appTextCatalog) {
     _textCatalog = appTextCatalog;
   }
 
   Stream<bool> get runningChanges => _runningStateController.stream;
+
+  Stream<RuntimeStatusSnapshot> get runtimeStatusChanges =>
+      _runtimeStatusController.stream;
 
   Future<LaunchResult> launch({
     required String configPath,
@@ -451,6 +461,7 @@ class RuntimeLauncher {
     }
 
     _setVpnActive(true);
+    _startStatusPolling(paths);
     return LaunchResult(
       success: true,
       message: _messageWithOptionalLog(
@@ -617,6 +628,7 @@ class RuntimeLauncher {
     _activeProcess = null;
     _activeLogPipes = null;
     _activeConfigFingerprint = null;
+    _stopStatusPolling(clearStatus: true);
     _setVpnActive(false);
   }
 
@@ -625,7 +637,53 @@ class RuntimeLauncher {
       return;
     }
     _vpnActive = value;
+    if (!value) {
+      _stopStatusPolling(clearStatus: true);
+    }
     _runningStateController.add(value);
+  }
+
+  void _startStatusPolling(RuntimePaths paths) {
+    _statusPollTimer?.cancel();
+    _runtimeStatusController.add(RuntimeStatusSnapshot.empty);
+    unawaited(_pollRuntimeStatus(paths));
+    _statusPollTimer = Timer.periodic(_statusPollInterval, (_) {
+      unawaited(_pollRuntimeStatus(paths));
+    });
+  }
+
+  void _stopStatusPolling({required bool clearStatus}) {
+    _statusPollTimer?.cancel();
+    _statusPollTimer = null;
+    _statusPollInFlight = false;
+    if (clearStatus) {
+      _runtimeStatusController.add(RuntimeStatusSnapshot.empty);
+    }
+  }
+
+  Future<void> _pollRuntimeStatus(RuntimePaths paths) async {
+    if (_statusPollInFlight || _activeProcess == null || !_vpnActive) {
+      return;
+    }
+    _statusPollInFlight = true;
+    try {
+      final result = await _controlClient.send(
+        paths,
+        command: 'status',
+        waitTimeout: _statusPollTimeout,
+      );
+      if (!result.success) {
+        return;
+      }
+      final snapshot = RuntimeStatusSnapshot.tryParse(result.stdout);
+      if (snapshot != null) {
+        _runtimeStatusController.add(snapshot);
+      }
+    } catch (_) {
+      // Status telemetry is best-effort and should not affect the connection.
+    } finally {
+      _statusPollInFlight = false;
+    }
   }
 
   _ProcessLogPipes _pipeProcessOutput(
@@ -877,7 +935,10 @@ class RuntimeControlClient {
     required Duration waitTimeout,
   }) async {
     final helperPath = paths.pipeHelperExePath.isEmpty
-        ? p.join(paths.runtimeDir, 'mdpipectl.exe')
+        ? p.join(
+            paths.runtimeDir,
+            Platform.isWindows ? 'mdpipectl.exe' : 'mdpipectl',
+          )
         : paths.pipeHelperExePath;
     final result = await Process.run(
       helperPath,

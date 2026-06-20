@@ -9,6 +9,7 @@ import '../../../core/models/client_profile.dart';
 import '../../../core/models/metrics_config.dart';
 import '../../../core/models/relay_target.dart';
 import '../../../core/models/runtime_paths.dart';
+import '../../../core/models/runtime_status_snapshot.dart';
 import '../../../core/models/server_target.dart';
 import '../../../core/models/network_rescue_config.dart';
 import '../../../core/models/bad_app_finding.dart';
@@ -37,6 +38,7 @@ class HomeViewModel extends ChangeNotifier {
   AppTextCatalog _textCatalog;
   final TrayIconService _trayIconService;
   StreamSubscription<bool>? _runningSubscription;
+  StreamSubscription<RuntimeStatusSnapshot>? _runtimeStatusSubscription;
   Future<BadAppScanResult>? _activeBadAppScan;
   Future<AppUpdateInfo?>? _activeUpdateCheck;
   bool _sessionBadAppScanStarted = false;
@@ -48,6 +50,8 @@ class HomeViewModel extends ChangeNotifier {
   final failbackDelayController = TextEditingController();
   final tunnelMtuController = TextEditingController();
   final packetFragmentPayloadController = TextEditingController();
+  final packetPaddingMinController = TextEditingController();
+  final packetPaddingMaxController = TextEditingController();
 
   SplitTunnelMode splitTunnelMode = SplitTunnelMode.disabled;
   TransportMode transportMode = TransportMode.auto;
@@ -60,6 +64,8 @@ class HomeViewModel extends ChangeNotifier {
   bool disableIpv6 = false;
   int tunnelMtu = 1280;
   int packetFragmentPayloadBytes = 0;
+  int packetPaddingMinBytes = 0;
+  int packetPaddingMaxBytes = 0;
   bool disablePacketBatching = false;
   List<RelayTarget> relays = const [];
   List<ServerTarget> servers = const [];
@@ -85,6 +91,7 @@ class HomeViewModel extends ChangeNotifier {
   bool badAppScanFailed = false;
   bool badAppScanRanThisSession = false;
   AppUpdateInfo? availableUpdate;
+  RuntimeStatusSnapshot runtimeStatus = RuntimeStatusSnapshot.empty;
   String? _dismissedUpdateVersion;
 
   String t(String key, [Map<String, Object?>? values]) {
@@ -108,6 +115,7 @@ class HomeViewModel extends ChangeNotifier {
   void dispose() {
     _disposed = true;
     _runningSubscription?.cancel();
+    _runtimeStatusSubscription?.cancel();
     unawaited(_controller.shutdownRuntime());
     userIdController.dispose();
     tunNameController.dispose();
@@ -115,6 +123,8 @@ class HomeViewModel extends ChangeNotifier {
     failbackDelayController.dispose();
     tunnelMtuController.dispose();
     packetFragmentPayloadController.dispose();
+    packetPaddingMinController.dispose();
+    packetPaddingMaxController.dispose();
     super.dispose();
   }
 
@@ -367,6 +377,32 @@ class HomeViewModel extends ChangeNotifier {
     notifyListeners();
   }
 
+  void setPacketPaddingMinFromText(String value) {
+    final parsed = int.tryParse(value.trim());
+    if (parsed == null) {
+      return;
+    }
+    packetPaddingMinBytes = parsed;
+    notifyListeners();
+  }
+
+  void setPacketPaddingMaxFromText(String value) {
+    final parsed = int.tryParse(value.trim());
+    if (parsed == null) {
+      return;
+    }
+    packetPaddingMaxBytes = parsed;
+    notifyListeners();
+  }
+
+  void setPacketPaddingRange(int minBytes, int maxBytes) {
+    packetPaddingMinBytes = minBytes;
+    packetPaddingMaxBytes = maxBytes;
+    packetPaddingMinController.text = '$minBytes';
+    packetPaddingMaxController.text = '$maxBytes';
+    notifyListeners();
+  }
+
   void setDisablePacketBatching(bool value) {
     disablePacketBatching = value;
     notifyListeners();
@@ -470,6 +506,12 @@ class HomeViewModel extends ChangeNotifier {
       packetFragmentPayloadBytes:
           int.tryParse(packetFragmentPayloadController.text.trim()) ??
               packetFragmentPayloadBytes,
+      packetPaddingMinBytes:
+          int.tryParse(packetPaddingMinController.text.trim()) ??
+              packetPaddingMinBytes,
+      packetPaddingMaxBytes:
+          int.tryParse(packetPaddingMaxController.text.trim()) ??
+              packetPaddingMaxBytes,
       disablePacketBatching: disablePacketBatching,
       splitTunnelMode: splitTunnelMode,
       windowsApps: _normalizeWindowsApps(windowsApps),
@@ -512,6 +554,22 @@ class HomeViewModel extends ChangeNotifier {
       TransportMode.https => t('label.transport_https'),
       TransportMode.rawUdp => t('label.transport_raw_udp'),
     };
+  }
+
+  String runtimeTransportLabel(String transportId) {
+    final normalized = transportId.trim();
+    if (normalized.isEmpty) {
+      return t('status.not_set');
+    }
+    final mode = TransportMode.fromWireValue(normalized);
+    if (mode == TransportMode.auto && normalized.toLowerCase() != 'auto') {
+      return normalized;
+    }
+    return transportModeLabel(mode);
+  }
+
+  String rateLabel(double bps) {
+    return RuntimeStatusSnapshot.formatRate(bps);
   }
 
   String networkRescueProfileLabel(NetworkRescueProfile profile) {
@@ -726,6 +784,8 @@ class HomeViewModel extends ChangeNotifier {
     tunnelMtuController.text = '${profile.tunnelMtu}';
     packetFragmentPayloadController.text =
         '${profile.packetFragmentPayloadBytes}';
+    packetPaddingMinController.text = '${profile.packetPaddingMinBytes}';
+    packetPaddingMaxController.text = '${profile.packetPaddingMaxBytes}';
     transportMode = profile.transport.mode;
     networkRescueProfile = profile.networkRescue.profile;
     metricsEnabled = profile.metrics.enabled;
@@ -735,6 +795,8 @@ class HomeViewModel extends ChangeNotifier {
     disableIpv6 = profile.disableIpv6;
     tunnelMtu = profile.tunnelMtu;
     packetFragmentPayloadBytes = profile.packetFragmentPayloadBytes;
+    packetPaddingMinBytes = profile.packetPaddingMinBytes;
+    packetPaddingMaxBytes = profile.packetPaddingMaxBytes;
     disablePacketBatching = profile.disablePacketBatching;
     relays = profile.relays;
     servers = _normalizeServerPriorities(profile.servers);
@@ -770,6 +832,7 @@ class HomeViewModel extends ChangeNotifier {
 
   void _watchController() {
     _runningSubscription?.cancel();
+    _runtimeStatusSubscription?.cancel();
     _runningSubscription = _controller.runningChanges.listen((isRunning) {
       if (isRuntimeStarted == isRunning) {
         _syncTrayIcon();
@@ -779,10 +842,18 @@ class HomeViewModel extends ChangeNotifier {
       _setRuntimeStarted(isRunning);
       notifyListeners();
     });
+    _runtimeStatusSubscription =
+        _controller.runtimeStatusChanges.listen((snapshot) {
+      runtimeStatus = snapshot;
+      notifyListeners();
+    });
   }
 
   void _setRuntimeStarted(bool value) {
     isRuntimeStarted = value;
+    if (!value) {
+      runtimeStatus = RuntimeStatusSnapshot.empty;
+    }
     _syncTrayIcon();
   }
 
