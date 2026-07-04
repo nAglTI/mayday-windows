@@ -20,4 +20,22 @@ void main() {
     expect(version.displayVersion, '2.7.0');
     expect(version.windowsVersion, '2.7.0.0');
   });
+
+  test('allows prerelease suffixes for test Windows builds', () {
+    final version = AppBuildVersion.parse('2.1.2-hotfix-test+17');
+
+    expect(version.buildName, '2.1.2-hotfix-test');
+    expect(version.buildNumber, '17');
+    expect(version.displayVersion, '2.1.2-hotfix-test+17');
+    expect(version.windowsVersion, '2.1.2.17');
+  });
+
+  test('pads short versions before prerelease suffixes', () {
+    final version = AppBuildVersion.parse('2.7-hotfix-test');
+
+    expect(version.buildName, '2.7.0-hotfix-test');
+    expect(version.buildNumber, '0');
+    expect(version.displayVersion, '2.7.0-hotfix-test');
+    expect(version.windowsVersion, '2.7.0.0');
+  });
 }

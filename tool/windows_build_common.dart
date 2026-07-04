@@ -48,7 +48,8 @@ class AppBuildVersion {
   }
 
   String get windowsVersion {
-    final components = buildName.split('.').map(int.parse).toList();
+    final numericBuildName = _numericBuildName(buildName);
+    final components = numericBuildName.split('.').map(int.parse).toList();
     while (components.length < 3) {
       components.add(0);
     }
@@ -57,21 +58,22 @@ class AppBuildVersion {
 
   static String _normalizeBuildName(String value) {
     final trimmed = value.trim();
-    final pattern = RegExp(r'^\d+(?:\.\d+){0,2}$');
-    if (!pattern.hasMatch(trimmed)) {
+    final match = _buildNamePattern.firstMatch(trimmed);
+    if (match == null) {
       throw FormatException(
-        'App version must be numeric x.y.z, got "$value".',
+        'App version must be numeric x.y.z with an optional prerelease '
+        'suffix, got "$value".',
       );
     }
 
-    final parts = trimmed.split('.');
+    final parts = match.group(1)!.split('.');
     for (final part in parts) {
       _parseWindowsVersionComponent(part, 'App version component');
     }
     while (parts.length < 3) {
       parts.add('0');
     }
-    return parts.join('.');
+    return '${parts.join('.')}${match.group(2) ?? ''}';
   }
 
   static String _normalizeBuildNumber(String value) {
@@ -93,6 +95,18 @@ class AppBuildVersion {
       );
     }
     return parsed;
+  }
+
+  static final _buildNamePattern = RegExp(
+    r'^(\d+(?:\.\d+){0,2})(-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$',
+  );
+
+  static String _numericBuildName(String value) {
+    final match = _buildNamePattern.firstMatch(value);
+    if (match == null) {
+      throw FormatException('Invalid normalized app version: "$value".');
+    }
+    return match.group(1)!;
   }
 }
 

@@ -123,15 +123,23 @@ class RuntimeLauncher {
     final activeProcess = _activeProcess;
     if (activeProcess != null) {
       if (_activeConfigFingerprint == configInspection.fingerprint) {
-        await _deleteConfigIfRequested(configPath, deleteConfigAfterLaunch);
-        return _startVpnOnActiveProcess(paths, launcherLogPath);
-      }
+        if (_vpnActive) {
+          await _deleteConfigIfRequested(configPath, deleteConfigAfterLaunch);
+          return _startVpnOnActiveProcess(paths, launcherLogPath);
+        }
 
-      await _shutdownActiveProcess(
-        paths,
-        launcherLogPath,
-        reason: 'config_changed',
-      );
+        await _shutdownActiveProcess(
+          paths,
+          launcherLogPath,
+          reason: 'reconnect_after_stop',
+        );
+      } else {
+        await _shutdownActiveProcess(
+          paths,
+          launcherLogPath,
+          reason: 'config_changed',
+        );
+      }
     }
 
     final missingFiles = await _runtimePathsService.validateRuntime(paths);
