@@ -25,6 +25,10 @@ void main() {
       AppVersion.tryParse('mayday-windows-3.2'),
       const AppVersion(major: 3, minor: 2, patch: 0, buildNumber: 0),
     );
+    expect(
+      AppVersion.tryParse('2.1.2-hotfix-test+7'),
+      const AppVersion(major: 2, minor: 1, patch: 2, buildNumber: 7),
+    );
     expect(AppVersion.tryParse('release-2026'), isNull);
   });
 

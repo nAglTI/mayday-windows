@@ -13,7 +13,8 @@ class AppVersion implements Comparable<AppVersion> {
 
   static AppVersion? tryParse(String value) {
     final match = RegExp(
-      r'(^|[^\d])(\d+)\.(\d+)(?:\.(\d+))?(?:\+(\d+))?',
+      r'(^|[^\d])(\d+)\.(\d+)(?:\.(\d+))?'
+      r'(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+(\d+))?',
     ).firstMatch(value.trim());
     if (match == null) {
       return null;
