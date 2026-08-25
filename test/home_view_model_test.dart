@@ -504,6 +504,9 @@ class _FakeRuntimeLauncher extends RuntimeLauncher {
       _runtimeStatusChanges.stream;
 
   @override
+  Future<void> attachExistingRuntime() async {}
+
+  @override
   Future<StopResult> shutdown() async {
     return const StopResult(success: true, message: 'stopped');
   }

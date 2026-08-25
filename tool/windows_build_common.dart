@@ -116,7 +116,12 @@ String resolveRepoRoot() {
 }
 
 String defaultFlutterCommand(String repoRoot) {
-  final localFlutter = p.join(repoRoot, 'flutter', 'bin', 'flutter.bat');
+  final localFlutter = p.join(
+    repoRoot,
+    'flutter',
+    'bin',
+    Platform.isWindows ? 'flutter.bat' : 'flutter',
+  );
   return File(localFlutter).existsSync() ? localFlutter : 'flutter';
 }
 

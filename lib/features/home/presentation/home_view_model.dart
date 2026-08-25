@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/widgets.dart';
 
@@ -98,6 +99,10 @@ class HomeViewModel extends ChangeNotifier {
     return _textCatalog.t(key, values);
   }
 
+  bool get supportsSplitTunnel => Platform.isWindows;
+
+  bool get supportsBadAppPreflight => Platform.isWindows;
+
   void updateDependencies({
     required ClientController controller,
     required AppTextCatalog textCatalog,
@@ -157,7 +162,7 @@ class HomeViewModel extends ChangeNotifier {
                   'error': state.autoStartError,
                 })}';
       warningMessage = state.savedProfileWarning;
-      shouldStartSessionScan = true;
+      shouldStartSessionScan = supportsBadAppPreflight;
     } catch (error) {
       errorMessage = t('message.bootstrap_failed', {'error': error});
     } finally {
@@ -513,7 +518,8 @@ class HomeViewModel extends ChangeNotifier {
           int.tryParse(packetPaddingMaxController.text.trim()) ??
               packetPaddingMaxBytes,
       disablePacketBatching: disablePacketBatching,
-      splitTunnelMode: splitTunnelMode,
+      splitTunnelMode:
+          supportsSplitTunnel ? splitTunnelMode : SplitTunnelMode.disabled,
       windowsApps: _normalizeWindowsApps(windowsApps),
       androidApps: profileAndroidApps,
       splitTunnelExtraFields: splitTunnelExtraFields,
@@ -806,7 +812,9 @@ class HomeViewModel extends ChangeNotifier {
     transportExtraFields = profile.transport.extraFields;
     networkRescueExtraFields = profile.networkRescue.extraFields;
     splitTunnelExtraFields = profile.splitTunnelExtraFields;
-    splitTunnelMode = profile.splitTunnelMode;
+    splitTunnelMode = supportsSplitTunnel
+        ? profile.splitTunnelMode
+        : SplitTunnelMode.disabled;
   }
 
   void _applyLaunchResult(LaunchResult result) {

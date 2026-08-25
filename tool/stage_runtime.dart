@@ -208,14 +208,16 @@ class RuntimeStageSpec {
     runtimeFiles: [
       RuntimeStageFile(
         outputName: 'mdhelper',
-        sourceNames: ['mdhelper', 'vpnclient'],
+        sourceNames: ['mdhelper', 'mayday-core', 'vpnclient'],
       ),
       RuntimeStageFile(
         outputName: 'mdpipectl',
-        sourceNames: ['mdpipectl', 'vpnpipectl'],
+        sourceNames: ['mdpipectl', 'maydayctl', 'vpnpipectl'],
       ),
     ],
     staleAliases: [
+      'mayday-core',
+      'maydayctl',
       'vpnclient',
       'vpnpipectl',
       'mdschelper',

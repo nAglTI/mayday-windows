@@ -6,6 +6,7 @@ import 'package:path/path.dart' as p;
 import '../models/runtime_status_snapshot.dart';
 import '../models/runtime_paths.dart';
 import '../l10n/app_texts.dart';
+import 'macos_privileged_runtime.dart';
 import 'runtime_process_job.dart';
 import 'runtime_paths_service.dart';
 import 'runtime_diagnostics_logger.dart';
@@ -40,6 +41,7 @@ class RuntimeLauncher {
     RuntimeDiagnosticsLogger? diagnosticsLogger,
     RuntimeProcessJob? processJob,
     RuntimeControlClient? controlClient,
+    MacOSPrivilegedRuntime? macOSPrivilegedRuntime,
     AppTextCatalog? appTextCatalog,
   })  : _runtimePathsService =
             runtimePathsService ?? const RuntimePathsService(),
@@ -47,6 +49,8 @@ class RuntimeLauncher {
             diagnosticsLogger ?? const RuntimeDiagnosticsLogger(),
         _processJob = processJob ?? RuntimeProcessJob(),
         _controlClient = controlClient ?? RuntimeControlClient(),
+        _macOSPrivilegedRuntime =
+            macOSPrivilegedRuntime ?? const MacOSPrivilegedRuntime(),
         _textCatalog =
             appTextCatalog ?? const AppTextCatalog(AppLanguage.english);
 
@@ -61,6 +65,7 @@ class RuntimeLauncher {
   final RuntimeDiagnosticsLogger _diagnosticsLogger;
   final RuntimeProcessJob _processJob;
   final RuntimeControlClient _controlClient;
+  final MacOSPrivilegedRuntime _macOSPrivilegedRuntime;
   AppTextCatalog _textCatalog;
   final _runningStateController = StreamController<bool>.broadcast();
   final _runtimeStatusController =
@@ -70,6 +75,7 @@ class RuntimeLauncher {
   Timer? _statusPollTimer;
   int? _activeConfigFingerprint;
   bool _vpnActive = false;
+  bool _externalRuntime = false;
   bool _statusPollInFlight = false;
 
   void updateTextCatalog(AppTextCatalog appTextCatalog) {
@@ -80,6 +86,31 @@ class RuntimeLauncher {
 
   Stream<RuntimeStatusSnapshot> get runtimeStatusChanges =>
       _runtimeStatusController.stream;
+
+  Future<void> attachExistingRuntime() async {
+    final paths = await _runtimePathsService.getPaths();
+    try {
+      final result = await _controlClient.send(
+        paths,
+        command: 'status',
+        waitTimeout: const Duration(milliseconds: 300),
+      );
+      if (!result.success) {
+        return;
+      }
+
+      final snapshot = RuntimeStatusSnapshot.tryParse(result.stdout);
+      _externalRuntime = true;
+      _activeConfigFingerprint = null;
+      _setVpnActive(_snapshotShowsActiveVPN(snapshot));
+      _startStatusPolling(paths, pollImmediately: false);
+      if (snapshot != null) {
+        _runtimeStatusController.add(snapshot);
+      }
+    } catch (_) {
+      // No previous runtime is the normal application startup state.
+    }
+  }
 
   Future<LaunchResult> launch({
     required String configPath,
@@ -92,7 +123,9 @@ class RuntimeLauncher {
       paths,
       event: 'process.launch.requested',
       fields: {
-        'launchMode': 'direct Process.start',
+        'launchMode': Platform.isMacOS
+            ? 'macOS administrator authorization'
+            : 'direct Process.start',
         'clientExePath': paths.clientExePath,
         'runtimeDir': paths.runtimeDir,
         'configPath': configPath,
@@ -120,8 +153,7 @@ class RuntimeLauncher {
       );
     }
 
-    final activeProcess = _activeProcess;
-    if (activeProcess != null) {
+    if (_activeProcess != null || _externalRuntime) {
       if (_activeConfigFingerprint == configInspection.fingerprint) {
         if (_vpnActive) {
           await _deleteConfigIfRequested(configPath, deleteConfigAfterLaunch);
@@ -178,7 +210,7 @@ class RuntimeLauncher {
     final paths = await _runtimePathsService.getPaths();
     final launcherLogPath = await _launcherLogPath(paths);
     final process = _activeProcess;
-    if (process == null) {
+    if (process == null && !_externalRuntime) {
       return StopResult(
         success: true,
         message: _messageWithOptionalLog(
@@ -193,7 +225,7 @@ class RuntimeLauncher {
       paths,
       event: 'vpn.stop.requested',
       fields: {
-        'processId': process.pid,
+        if (process != null) 'processId': process.pid,
         'pipe': paths.controlPipePath,
       },
     );
@@ -210,7 +242,7 @@ class RuntimeLauncher {
           paths,
           event: 'vpn.stop.failed',
           fields: {
-            'processId': process.pid,
+            if (process != null) 'processId': process.pid,
             ...result.toLogFields(),
           },
         );
@@ -230,7 +262,7 @@ class RuntimeLauncher {
         paths,
         event: 'vpn.stop.completed',
         fields: {
-          'processId': process.pid,
+          if (process != null) 'processId': process.pid,
           ...result.toLogFields(),
         },
       );
@@ -248,7 +280,7 @@ class RuntimeLauncher {
         paths,
         event: 'process.stop.failed',
         fields: {
-          'processId': process.pid,
+          if (process != null) 'processId': process.pid,
           'error': error,
         },
       );
@@ -283,7 +315,7 @@ class RuntimeLauncher {
   ) async {
     String? stdoutLogPath;
     String? stderrLogPath;
-    if (_diagnosticsLogger.enabled) {
+    if (_diagnosticsLogger.enabled || Platform.isMacOS) {
       final logsDir = p.join(paths.mutableRoot, 'logs');
       await Directory(logsDir).create(recursive: true);
 
@@ -291,20 +323,34 @@ class RuntimeLauncher {
           DateTime.now().toIso8601String().replaceAll(RegExp(r'[:.]'), '-');
       stdoutLogPath = p.join(logsDir, 'client-$stamp.out.log');
       stderrLogPath = p.join(logsDir, 'client-$stamp.err.log');
+      if (Platform.isMacOS) {
+        await Future.wait([
+          File(stdoutLogPath).writeAsString('', flush: true),
+          File(stderrLogPath).writeAsString('', flush: true),
+        ]);
+      }
     }
 
     try {
-      final process = await Process.start(
-        paths.clientExePath,
-        ['-config', configPath, '-control-pipe', paths.controlPipePath],
-        workingDirectory: paths.runtimeDir,
-        mode: ProcessStartMode.normal,
-      );
+      final process = Platform.isMacOS
+          ? await _macOSPrivilegedRuntime.start(
+              paths: paths,
+              configPath: configPath,
+              stdoutLogPath: stdoutLogPath!,
+              stderrLogPath: stderrLogPath!,
+            )
+          : await Process.start(
+              paths.clientExePath,
+              ['-config', configPath, '-control-pipe', paths.controlPipePath],
+              workingDirectory: paths.runtimeDir,
+              mode: ProcessStartMode.normal,
+            );
       await _attachProcessToJob(paths, process);
       final pipes = _pipeProcessOutput(
         process,
         stdoutLogPath: stdoutLogPath,
         stderrLogPath: stderrLogPath,
+        append: Platform.isMacOS,
       );
 
       final earlyExitCode = await _waitForEarlyExit(process.exitCode);
@@ -344,6 +390,7 @@ class RuntimeLauncher {
         }
 
         _activeProcess = process;
+        _externalRuntime = false;
         _activeLogPipes = pipes.done;
         _activeConfigFingerprint = configInspection.fingerprint;
         _setVpnActive(false);
@@ -487,7 +534,7 @@ class RuntimeLauncher {
     required String reason,
   }) async {
     final process = _activeProcess;
-    if (process == null) {
+    if (process == null && !_externalRuntime) {
       _setVpnActive(false);
       return StopResult(
         success: true,
@@ -504,7 +551,7 @@ class RuntimeLauncher {
       event: 'process.shutdown.requested',
       fields: {
         'reason': reason,
-        'processId': process.pid,
+        if (process != null) 'processId': process.pid,
         'pipe': paths.controlPipePath,
       },
     );
@@ -516,21 +563,25 @@ class RuntimeLauncher {
     );
 
     var exitCode = result.exitCode;
-    if (result.success) {
+    if (result.success && process != null) {
       try {
         exitCode = await process.exitCode.timeout(const Duration(seconds: 5));
       } on TimeoutException {
         process.kill();
       }
-    } else {
+    } else if (!result.success && process != null) {
       process.kill();
     }
 
-    await _activeLogPipes?.timeout(
-      _logFlushTimeout,
-      onTimeout: () => <void>[],
-    );
-    _clearActiveProcess(process);
+    if (process != null) {
+      await _activeLogPipes?.timeout(
+        _logFlushTimeout,
+        onTimeout: () => <void>[],
+      );
+      _clearActiveProcess(process);
+    } else if (result.success) {
+      _clearExternalRuntime();
+    }
 
     await _diagnosticsLogger.writeEvent(
       paths,
@@ -539,7 +590,7 @@ class RuntimeLauncher {
           : 'process.shutdown.failed',
       fields: {
         'reason': reason,
-        'processId': process.pid,
+        if (process != null) 'processId': process.pid,
         'exitCode': exitCode,
         ...result.toLogFields(),
       },
@@ -634,7 +685,15 @@ class RuntimeLauncher {
       return;
     }
     _activeProcess = null;
+    _externalRuntime = false;
     _activeLogPipes = null;
+    _activeConfigFingerprint = null;
+    _stopStatusPolling(clearStatus: true);
+    _setVpnActive(false);
+  }
+
+  void _clearExternalRuntime() {
+    _externalRuntime = false;
     _activeConfigFingerprint = null;
     _stopStatusPolling(clearStatus: true);
     _setVpnActive(false);
@@ -648,10 +707,15 @@ class RuntimeLauncher {
     _runningStateController.add(value);
   }
 
-  void _startStatusPolling(RuntimePaths paths) {
+  void _startStatusPolling(
+    RuntimePaths paths, {
+    bool pollImmediately = true,
+  }) {
     _statusPollTimer?.cancel();
     _runtimeStatusController.add(RuntimeStatusSnapshot.empty);
-    unawaited(_pollRuntimeStatus(paths));
+    if (pollImmediately) {
+      unawaited(_pollRuntimeStatus(paths));
+    }
     _statusPollTimer = Timer.periodic(_statusPollInterval, (_) {
       unawaited(_pollRuntimeStatus(paths));
     });
@@ -667,7 +731,7 @@ class RuntimeLauncher {
   }
 
   Future<void> _pollRuntimeStatus(RuntimePaths paths) async {
-    if (_statusPollInFlight || _activeProcess == null) {
+    if (_statusPollInFlight || (_activeProcess == null && !_externalRuntime)) {
       return;
     }
     _statusPollInFlight = true;
@@ -682,6 +746,7 @@ class RuntimeLauncher {
       }
       final snapshot = RuntimeStatusSnapshot.tryParse(result.stdout);
       if (snapshot != null) {
+        _setVpnActive(_snapshotShowsActiveVPN(snapshot));
         _runtimeStatusController.add(snapshot);
       }
     } catch (_) {
@@ -691,10 +756,15 @@ class RuntimeLauncher {
     }
   }
 
+  bool _snapshotShowsActiveVPN(RuntimeStatusSnapshot? snapshot) {
+    return snapshot?.vpnState.trim().toLowerCase() == 'active';
+  }
+
   _ProcessLogPipes _pipeProcessOutput(
     Process process, {
     required String? stdoutLogPath,
     required String? stderrLogPath,
+    bool append = false,
   }) {
     if (stdoutLogPath == null || stderrLogPath == null) {
       return _ProcessLogPipes(
@@ -705,8 +775,9 @@ class RuntimeLauncher {
       );
     }
 
-    final stdoutSink = File(stdoutLogPath).openWrite();
-    final stderrSink = File(stderrLogPath).openWrite();
+    final mode = append ? FileMode.append : FileMode.write;
+    final stdoutSink = File(stdoutLogPath).openWrite(mode: mode);
+    final stderrSink = File(stderrLogPath).openWrite(mode: mode);
     final stdoutDone = process.stdout.pipe(stdoutSink);
     final stderrDone = process.stderr.pipe(stderrSink);
 

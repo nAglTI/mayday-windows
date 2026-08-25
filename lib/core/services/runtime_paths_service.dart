@@ -115,7 +115,12 @@ class RuntimePathsService {
   }
 
   Future<void> ensureMutableDirectories(RuntimePaths paths) async {
-    await Directory(paths.configDir).create(recursive: true);
+    final configDirectory = await Directory(
+      paths.configDir,
+    ).create(recursive: true);
+    if (Platform.isMacOS) {
+      await _chmod(configDirectory.path, '700');
+    }
   }
 
   Future<List<String>> validateRuntime(RuntimePaths paths) async {
@@ -136,6 +141,19 @@ class RuntimePathsService {
       }
     }
     return missing;
+  }
+
+  Future<void> _chmod(String targetPath, String mode) async {
+    final result = await Process.run('/bin/chmod', [mode, targetPath]);
+    if (result.exitCode == 0) {
+      return;
+    }
+    throw ProcessException(
+      '/bin/chmod',
+      [mode, targetPath],
+      result.stderr.toString().trim(),
+      result.exitCode,
+    );
   }
 }
 

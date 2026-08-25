@@ -162,7 +162,11 @@ class ClientProfileStorage {
     await _runtimePathsService.ensureMutableDirectories(paths);
     final encoded = _codec.encodeYaml(profile);
     final file = File(_runtimeConfigPath(paths));
-    return file.writeAsString(encoded, flush: true);
+    final written = await file.writeAsString(encoded, flush: true);
+    if (Platform.isMacOS) {
+      await _chmod(written.path, '600');
+    }
+    return written;
   }
 
   Future<File> _writeEncrypted(RuntimePaths paths, String rawConfig) async {
@@ -228,5 +232,18 @@ class ClientProfileStorage {
 
   String _metadataPath(RuntimePaths paths) {
     return p.join(paths.configDir, _metadataFileName);
+  }
+
+  Future<void> _chmod(String targetPath, String mode) async {
+    final result = await Process.run('/bin/chmod', [mode, targetPath]);
+    if (result.exitCode == 0) {
+      return;
+    }
+    throw ProcessException(
+      '/bin/chmod',
+      [mode, targetPath],
+      result.stderr.toString().trim(),
+      result.exitCode,
+    );
   }
 }

@@ -99,6 +99,9 @@ class ClientController {
     final paths = await _runtimePathsService.getPaths();
     final missingRuntimeFiles =
         await _runtimePathsService.validateRuntime(paths);
+    if (missingRuntimeFiles.isEmpty) {
+      await _launcher.attachExistingRuntime();
+    }
     final savedProfile = await _loadSavedProfileForBootstrap();
     final badAppScanResult = await _badAppScanResultStorage.load();
     final autoStartEnabled = await _appSettings.loadAutoStartEnabled();

@@ -215,7 +215,8 @@ class _HomePageState extends State<HomePage> {
   }
 
   Future<void> _connectWithPreflight() async {
-    if (_viewModel.isBadAppPreflightPassed) {
+    if (!_viewModel.supportsBadAppPreflight ||
+        _viewModel.isBadAppPreflightPassed) {
       await _viewModel.saveAndLaunch();
       return;
     }

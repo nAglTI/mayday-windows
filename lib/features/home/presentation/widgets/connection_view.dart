@@ -84,16 +84,18 @@ class ConnectionView extends StatelessWidget {
         const SizedBox(height: 12),
         Row(
           children: [
-            Expanded(
-              child: OutlinedButton.icon(
-                onPressed: viewModel.isBusy || viewModel.isRuntimeStarted
-                    ? null
-                    : onPreflightScan,
-                icon: const Icon(Icons.health_and_safety_outlined),
-                label: ButtonLabel(textCatalog.t('button.preflight_scan')),
+            if (viewModel.supportsBadAppPreflight) ...[
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: viewModel.isBusy || viewModel.isRuntimeStarted
+                      ? null
+                      : onPreflightScan,
+                  icon: const Icon(Icons.health_and_safety_outlined),
+                  label: ButtonLabel(textCatalog.t('button.preflight_scan')),
+                ),
               ),
-            ),
-            const SizedBox(width: 10),
+              const SizedBox(width: 10),
+            ],
             Expanded(
               child: OutlinedButton.icon(
                 onPressed: onOpenSettings,
@@ -266,12 +268,14 @@ class _ConnectionAdvancedDetails extends StatelessWidget {
           label: textCatalog.t('label.mode'),
           value: viewModel.splitModeLabel(viewModel.splitTunnelMode),
         ),
-        const Hairline(),
-        StatRow(
-          label: textCatalog.t('label.preflight_scan'),
-          value: viewModel.badAppScanSummary,
-          accent: _preflightScanColor,
-        ),
+        if (viewModel.supportsBadAppPreflight) ...[
+          const Hairline(),
+          StatRow(
+            label: textCatalog.t('label.preflight_scan'),
+            value: viewModel.badAppScanSummary,
+            accent: _preflightScanColor,
+          ),
+        ],
         if (!viewModel.engineReady) ...[
           const Hairline(),
           MissingFilesList(

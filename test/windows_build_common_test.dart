@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 
+import '../tool/stage_runtime.dart' as runtime_stage;
 import '../tool/windows_build_common.dart';
 
 void main() {
@@ -37,5 +38,18 @@ void main() {
     expect(version.buildNumber, '0');
     expect(version.displayVersion, '2.7.0-hotfix-test');
     expect(version.windowsVersion, '2.7.0.0');
+  });
+
+  test('macOS runtime staging accepts core release binary names', () {
+    final spec = runtime_stage.RuntimeStageSpec.macos;
+
+    expect(
+      spec.runtimeFiles.first.sourceNames,
+      containsAll(['mayday-core', 'mdhelper']),
+    );
+    expect(
+      spec.runtimeFiles.last.sourceNames,
+      containsAll(['maydayctl', 'mdpipectl']),
+    );
   });
 }

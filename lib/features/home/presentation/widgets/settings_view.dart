@@ -152,23 +152,27 @@ class SettingsView extends StatelessWidget {
             onReorder: viewModel.reorderServers,
           ),
         ),
-        const SizedBox(height: 18),
-        SectionTitle(textCatalog.t('section.split_routing')),
-        const SizedBox(height: 8),
-        SurfacePanel(
-          child: SplitTunnelAppsPanel(
-            textCatalog: textCatalog,
-            mode: viewModel.splitTunnelMode,
-            apps: viewModel.windowsApps,
-            enabled: !viewModel.isBusy,
-            onModeChanged:
-                viewModel.isBusy ? null : viewModel.setSplitTunnelMode,
-            onPickFile:
-                viewModel.isBusy ? null : viewModel.addSplitTunnelAppFromFile,
-            onPickRunning: viewModel.isBusy ? null : onPickRunningApp,
-            onRemove: viewModel.isBusy ? null : viewModel.removeSplitTunnelApp,
+        if (viewModel.supportsSplitTunnel) ...[
+          const SizedBox(height: 18),
+          SectionTitle(textCatalog.t('section.split_routing')),
+          const SizedBox(height: 8),
+          SurfacePanel(
+            child: SplitTunnelAppsPanel(
+              textCatalog: textCatalog,
+              mode: viewModel.splitTunnelMode,
+              apps: viewModel.windowsApps,
+              enabled: !viewModel.isBusy,
+              onModeChanged:
+                  viewModel.isBusy ? null : viewModel.setSplitTunnelMode,
+              onPickFile: viewModel.isBusy
+                  ? null
+                  : viewModel.addSplitTunnelAppFromFile,
+              onPickRunning: viewModel.isBusy ? null : onPickRunningApp,
+              onRemove:
+                  viewModel.isBusy ? null : viewModel.removeSplitTunnelApp,
+            ),
           ),
-        ),
+        ],
         const SizedBox(height: 18),
         CollapsibleSection(
           title: textCatalog.t('section.diagnostics'),
