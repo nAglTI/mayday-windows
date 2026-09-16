@@ -20,6 +20,12 @@ class ClientProfileContractException implements Exception {
   String toString() => message;
 }
 
+class LegacyRawUdpProfileException extends ClientProfileContractException {
+  const LegacyRawUdpProfileException(super.message, {required this.profile});
+
+  final ClientProfile profile;
+}
+
 class ClientProfileCodec {
   const ClientProfileCodec({AppTextCatalog? appTextCatalog})
       : _textCatalog =
@@ -87,13 +93,15 @@ class ClientProfileCodec {
   ClientProfile parseCurrentContractRaw(String rawConfig) {
     final config = _configMapFromRaw(rawConfig);
     _validateCurrentContract(config);
-    return _profileFromMap(config);
+    final profile = _profileFromMap(config);
+    // Report the removed carrier only after validating the rest of the profile,
+    // so bootstrap recovery cannot bypass other contract failures.
+    _validateRuntimeTransport(profile);
+    return profile;
   }
 
   void validateCurrentContractRaw(String rawConfig) {
-    final config = _configMapFromRaw(rawConfig);
-    _validateCurrentContract(config);
-    _profileFromMap(config);
+    parseCurrentContractRaw(rawConfig);
   }
 
   Map<String, Object?> _configMapFromRaw(String rawConfig) {
@@ -114,6 +122,27 @@ class ClientProfileCodec {
   }
 
   String encodeYaml(ClientProfile profile) {
+    return _encodeYaml(profile, includeUiPreferences: true);
+  }
+
+  String encodeRuntimeYaml(ClientProfile profile) {
+    _validateRuntimeTransport(profile);
+    return _encodeYaml(profile, includeUiPreferences: false);
+  }
+
+  void _validateRuntimeTransport(ClientProfile profile) {
+    if (profile.transport.mode == TransportMode.rawUdp) {
+      throw LegacyRawUdpProfileException(
+        _textCatalog.t('codec.legacy_raw_udp_removed'),
+        profile: profile,
+      );
+    }
+  }
+
+  String _encodeYaml(
+    ClientProfile profile, {
+    required bool includeUiPreferences,
+  }) {
     _validateProfile(profile);
 
     final userId = int.parse(profile.userId.trim());
@@ -134,7 +163,7 @@ class ClientProfileCodec {
       'disable_packet_batching': profile.disablePacketBatching,
       'discovery_relays': _encodeRelays(profile.relays),
       'servers': _encodeServers(profile.servers),
-      'metrics': _encodeMetrics(profile.metrics),
+      if (includeUiPreferences) 'metrics': _encodeMetrics(profile.metrics),
       'split_tunnel': _encodeSplitTunnel(profile),
     };
 
@@ -173,6 +202,16 @@ class ClientProfileCodec {
     }
     if (profile.relays.isEmpty) {
       throw FormatException(_textCatalog.t('codec.relay_required'));
+    }
+    if (profile.transport.mode == TransportMode.rawUdpV2 &&
+        !profile.relays.any(
+          (relay) =>
+              relay.transportPorts['raw-udp-v2']?.any(
+                (port) => port >= 1 && port <= 65535,
+              ) ??
+              false,
+        )) {
+      throw FormatException(_textCatalog.t('codec.raw_udp_v2_ports_required'));
     }
 
     final relayShortIds = <int>{};
@@ -217,7 +256,7 @@ class ClientProfileCodec {
       if (!_serverKeyPattern.hasMatch(key)) {
         throw FormatException(_textCatalog.t('codec.server_key_hex'));
       }
-      if (server.priority < 1) {
+      if (server.priority < 0) {
         throw FormatException(_textCatalog.t('codec.server_priority_invalid'));
       }
     }
@@ -254,29 +293,21 @@ class ClientProfileCodec {
     }
 
     final splitTunnel = _toMap(map['split_tunnel']);
-    if (!map.containsKey('split_tunnel') ||
-        !splitTunnel.containsKey('apps_mode')) {
+    final splitTunnelEnabled = _readBool(splitTunnel['enabled']);
+    if (splitTunnelEnabled && !splitTunnel.containsKey('apps_mode')) {
       throw ClientProfileContractException(
         _textCatalog.t('codec.contract_apps_mode_required'),
       );
     }
-    final splitTunnelEnabled = _readBool(splitTunnel['enabled']);
     if (splitTunnelEnabled && !splitTunnel.containsKey('apps_win')) {
       throw ClientProfileContractException(
         _textCatalog.t('codec.contract_apps_win_required'),
       );
     }
-    if (splitTunnelEnabled && !splitTunnel.containsKey('apps_android')) {
-      throw ClientProfileContractException(
-        _textCatalog.t(
-          'codec.contract_current_field_required',
-          {'field': 'split_tunnel.apps_android'},
-        ),
-      );
-    }
-
     final transport = _toMap(map['transport']);
-    if (!TransportMode.supportsWireValue(transport['mode']?.toString())) {
+    final mode = transport['mode']?.toString();
+    if (!TransportMode.supportsWireValue(mode) &&
+        TransportMode.fromWireValue(mode) != TransportMode.rawUdp) {
       throw ClientProfileContractException(
         _textCatalog.t('codec.contract_transport_mode_unsupported'),
       );
@@ -383,9 +414,10 @@ class ClientProfileCodec {
     final networkRescue = _toMap(rawNetworkRescue);
     final explicitProfile = networkRescue['profile']?.toString();
     final enabled = _readBool(networkRescue['enabled']);
-    final profile = explicitProfile == null && enabled
+    final parsedProfile = NetworkRescueProfile.fromWireValue(explicitProfile);
+    final profile = parsedProfile == NetworkRescueProfile.off && enabled
         ? NetworkRescueProfile.stable
-        : NetworkRescueProfile.fromWireValue(explicitProfile);
+        : parsedProfile;
     return NetworkRescueConfig(
       profile: profile,
       extraFields: _unknownFields(networkRescue, _networkRescueKeys),
@@ -430,7 +462,7 @@ class ClientProfileCodec {
         ServerTarget(
           id: serverMap['id']?.toString().trim() ?? '',
           key: serverMap['key']?.toString().trim() ?? '',
-          priority: _parseInt(serverMap['priority']) ?? 1,
+          priority: _parseInt(serverMap['priority']) ?? 0,
           extraFields: _unknownFields(serverMap, _serverKeys),
         ),
       );
@@ -467,6 +499,8 @@ class ClientProfileCodec {
       'enabled': networkRescue.enabled,
       'profile': networkRescue.profile.wireValue,
       ..._unknownFields(networkRescue.extraFields, _networkRescueKeys),
+      'adaptive_pacing': networkRescue.enabled &&
+          _readBool(networkRescue.extraFields['adaptive_pacing']),
     };
   }
 
@@ -612,7 +646,7 @@ class ClientProfileCodec {
 
   bool _validTunnelMtu(int value, {required bool disableIpv6}) {
     final min = disableIpv6 ? 100 : 1280;
-    return value >= min && value <= 1500;
+    return value == 0 || (value >= min && value <= 1500);
   }
 
   bool _validPacketFragmentPayload(int value) {

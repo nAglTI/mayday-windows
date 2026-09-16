@@ -172,11 +172,16 @@ class AppTextCatalog {
       'label.preflight_scan': 'проверка',
       'label.transport_mode': 'режим транспорта',
       'label.transport_auto': 'Автоматически',
+      'label.transport_auto_lowcpu': 'Автоматически (auto-lowcpu)',
       'label.transport_tcp': 'TCP',
       'label.transport_utp': 'uTP',
       'label.transport_ws': 'WebSocket',
       'label.transport_https': 'HTTPS REST',
-      'label.transport_raw_udp': 'Raw UDP (rescue)',
+      'label.transport_raw_udp': 'Raw UDP v1 (удалён)',
+      'label.transport_raw_udp_v2': 'Raw UDP v2',
+      'label.installed_core_version': 'версия установленного ядра',
+      'label.running_core_version': 'версия запущенного ядра',
+      'status.core_version_unknown': 'версия ядра неизвестна',
       'label.active_relay': 'активное реле',
       'label.active_transport': 'активный протокол',
       'label.upload_rate': 'исходящая скорость',
@@ -192,9 +197,13 @@ class AppTextCatalog {
       'label.network_rescue_stable': 'Stable rescue',
       'label.network_rescue_extreme': 'Extreme rescue',
       'label.network_rescue_helper':
-          'Отдельная политика для нестабильных сетей. Stable предпочитает HTTPS/WS/TCP, Extreme может сначала выбрать raw-udp.',
+          'Отдельная политика для нестабильных сетей. Stable и Extreme выбирают доступные транспорты из профиля. Raw UDP v2 требует явных портов и ключа релея.',
       'label.prestart_full_probe': 'Полная проверка перед подключением',
       'label.steady_quick_probe': 'Быстрая проверка в фоне',
+      'label.steady_quick_probe_compatibility':
+          'Значение сохранено для совместимости. В текущем ядре оно не включает фоновую проверку.',
+      'label.split_direct_ipv6':
+          'Для приложений вне VPN IPv6 блокируется. Они могут использовать прямое подключение по IPv4; ресурсы только с IPv6 будут недоступны.',
       'label.steady_benchmark': 'Фоновый benchmark',
       'label.disable_ipv6': 'Отключить IPv6',
       'label.tunnel_mtu': 'MTU туннеля',
@@ -210,6 +219,11 @@ class AppTextCatalog {
       'label.packet_padding_helper':
           '0/0 отключает padding. Диапазон: 0–1200 байт, положительный минимум должен быть меньше максимума.',
       'label.packet_padding_off': 'Отключено',
+      'label.packet_padding_minimal': 'Минимальный',
+      'label.packet_padding_extreme': 'Экстремальный',
+      'label.packet_padding_custom': 'Свой диапазон',
+      'label.packet_padding_mode_helper':
+          'Минимальный добавляет до 64 байт. Экстремальный добавляет до 768 байт и дробит пакеты; скорость может снизиться. Не зависит от Network Rescue.',
       'label.packet_padding_light': 'Легкий',
       'label.packet_padding_strong': 'Усиленный',
       'label.disable_packet_batching': 'Отключить batching пакетов',
@@ -365,6 +379,10 @@ class AppTextCatalog {
           'В discovery_relays должен быть transport_ports для каждого реле.',
       'codec.contract_transport_mode_unsupported':
           'transport.mode не поддерживается текущей версией Mayday.',
+      'codec.legacy_raw_udp_removed':
+          'Raw UDP v1 удалён из ядра 2.1.2. Получите обновлённый ключ доступа или выберите поддерживаемый транспорт с портами из профиля. Порты v1 нельзя использовать для Raw UDP v2. Локальные правила приложений сохранены.',
+      'codec.raw_udp_v2_ports_required':
+          'В профиле нет портов raw-udp-v2, выданных оператором. Получите обновлённый ключ доступа или выберите другой транспорт. Порты raw-udp v1 не подходят для v2.',
       'codec.contract_network_rescue_profile_unsupported':
           'network_rescue.profile не поддерживается текущей версией Mayday.',
       'codec.contract_config_version_unsupported':
@@ -402,7 +420,7 @@ class AppTextCatalog {
       'codec.server_key_hex':
           'Ключ сервера должен содержать ровно 64 hex-символа.',
       'codec.server_priority_invalid':
-          'priority сервера должен быть положительным числом.',
+          'priority сервера должен быть неотрицательным числом.',
       'codec.split_apps_required':
           'split_tunnel.apps_win должен содержать минимум одно Windows-приложение.',
       'codec.user_id_required': 'Требуется user_id.',
@@ -533,11 +551,16 @@ class AppTextCatalog {
       'label.preflight_scan': 'preflight',
       'label.transport_mode': 'transport mode',
       'label.transport_auto': 'Automatic',
+      'label.transport_auto_lowcpu': 'Automatic (auto-lowcpu)',
       'label.transport_tcp': 'TCP',
       'label.transport_utp': 'uTP',
       'label.transport_ws': 'WebSocket',
       'label.transport_https': 'HTTPS REST',
-      'label.transport_raw_udp': 'Raw UDP (rescue)',
+      'label.transport_raw_udp': 'Raw UDP v1 (removed)',
+      'label.transport_raw_udp_v2': 'Raw UDP v2',
+      'label.installed_core_version': 'installed core version',
+      'label.running_core_version': 'running core version',
+      'status.core_version_unknown': 'core version unknown',
       'label.active_relay': 'active relay',
       'label.active_transport': 'active protocol',
       'label.upload_rate': 'upload',
@@ -553,9 +576,13 @@ class AppTextCatalog {
       'label.network_rescue_stable': 'Stable rescue',
       'label.network_rescue_extreme': 'Extreme rescue',
       'label.network_rescue_helper':
-          'Separate policy for unstable networks. Stable prefers HTTPS/WS/TCP, Extreme may try raw-udp first.',
+          'Separate policy for unstable networks. Stable and Extreme select available transports from the profile. Raw UDP v2 requires explicit ports and a relay key.',
       'label.prestart_full_probe': 'Full probe before connect',
       'label.steady_quick_probe': 'Background quick probe',
+      'label.steady_quick_probe_compatibility':
+          'This value is retained for compatibility. It does not enable background probing in the current core.',
+      'label.split_direct_ipv6':
+          'IPv6 is blocked for apps routed outside the VPN. They can connect directly over IPv4; IPv6-only resources will be unavailable.',
       'label.steady_benchmark': 'Background benchmark',
       'label.disable_ipv6': 'Disable IPv6',
       'label.tunnel_mtu': 'Tunnel MTU',
@@ -571,6 +598,11 @@ class AppTextCatalog {
       'label.packet_padding_helper':
           '0/0 disables padding. Range: 0-1200 bytes, and a positive minimum must be lower than the maximum.',
       'label.packet_padding_off': 'Off',
+      'label.packet_padding_minimal': 'Minimal',
+      'label.packet_padding_extreme': 'Extreme',
+      'label.packet_padding_custom': 'Custom range',
+      'label.packet_padding_mode_helper':
+          'Minimal adds up to 64 bytes. Extreme adds up to 768 bytes and fragments packets; throughput may decrease. Independent of Network Rescue.',
       'label.packet_padding_light': 'Light',
       'label.packet_padding_strong': 'Strong',
       'label.disable_packet_batching': 'Disable packet batching',
@@ -722,6 +754,10 @@ class AppTextCatalog {
           'discovery_relays must include transport_ports for every relay.',
       'codec.contract_transport_mode_unsupported':
           'transport.mode is not supported by this Mayday version.',
+      'codec.legacy_raw_udp_removed':
+          'Raw UDP v1 was removed in core 2.1.2. Obtain an updated access key or choose a supported transport with ports supplied in the profile. Do not reuse v1 ports for Raw UDP v2. Local app rules have been preserved.',
+      'codec.raw_udp_v2_ports_required':
+          'The profile has no operator-supplied raw-udp-v2 ports. Obtain an updated access key or choose another transport. Raw UDP v1 ports cannot be used for v2.',
       'codec.contract_network_rescue_profile_unsupported':
           'network_rescue.profile is not supported by this Mayday version.',
       'codec.contract_config_version_unsupported':
@@ -758,7 +794,7 @@ class AppTextCatalog {
       'codec.server_key_hex':
           'Server key must contain exactly 64 hex characters.',
       'codec.server_priority_invalid':
-          'Server priority must be a positive number.',
+          'Server priority must be a non-negative number.',
       'codec.split_apps_required':
           'split_tunnel.apps_win must contain at least one Windows app.',
       'codec.user_id_required': 'user_id is required.',

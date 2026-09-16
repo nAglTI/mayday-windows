@@ -12,6 +12,7 @@ import '../../../core/models/runtime_paths.dart';
 import '../../../core/models/runtime_status_snapshot.dart';
 import '../../../core/models/server_target.dart';
 import '../../../core/models/network_rescue_config.dart';
+import '../../../core/models/packet_padding_mode.dart';
 import '../../../core/models/bad_app_finding.dart';
 import '../../../core/models/bad_app_scan_result.dart';
 import '../../../core/models/app_update_info.dart';
@@ -75,6 +76,7 @@ class HomeViewModel extends ChangeNotifier {
   Map<String, Object?> transportExtraFields = const {};
   Map<String, Object?> networkRescueExtraFields = const {};
   Map<String, Object?> splitTunnelExtraFields = const {};
+  bool _hasRoutingPreferences = false;
   bool isBusy = true;
   bool isRuntimeStarted = false;
   String busyStatusText = 'status.working';
@@ -91,6 +93,7 @@ class HomeViewModel extends ChangeNotifier {
   bool badAppScanFailed = false;
   bool badAppScanRanThisSession = false;
   AppUpdateInfo? availableUpdate;
+  String? installedCoreVersion;
   RuntimeStatusSnapshot runtimeStatus = RuntimeStatusSnapshot.empty;
   String? _dismissedUpdateVersion;
 
@@ -141,6 +144,7 @@ class HomeViewModel extends ChangeNotifier {
       final state = await _controller.bootstrap();
       _applyProfile(state.profile);
       paths = state.paths;
+      installedCoreVersion = state.installedCoreVersion;
       missingRuntimeFiles = state.missingRuntimeFiles;
       autoStartEnabled = state.autoStartEnabled;
       badAppFindings = state.badAppScanResult?.findings;
@@ -179,10 +183,23 @@ class HomeViewModel extends ChangeNotifier {
 
     try {
       final result = _controller.importProfileFromKey(importKey);
-      _applyProfile(result.profile);
+      final profile = _hasRoutingPreferences
+          ? result.profile.copyWith(
+              splitTunnelMode: splitTunnelMode,
+              windowsApps: windowsApps,
+              androidApps: profileAndroidApps,
+              splitTunnelExtraFields: {
+                ...result.profile.splitTunnelExtraFields,
+                ...splitTunnelExtraFields,
+              },
+            )
+          : result.profile;
+      _applyProfile(profile);
       lastImportedPath = result.filePath;
       warningMessage = null;
       statusMessage = t('message.imported_from_key');
+    } on LegacyRawUdpProfileException catch (error) {
+      errorMessage = error.message;
     } on ClientProfileContractException {
       errorMessage = t('message.import_key_incompatible');
     } catch (error) {
@@ -314,6 +331,7 @@ class HomeViewModel extends ChangeNotifier {
   }
 
   void setSplitTunnelMode(SplitTunnelMode mode) {
+    _hasRoutingPreferences = true;
     splitTunnelMode = mode;
     notifyListeners();
   }
@@ -386,6 +404,17 @@ class HomeViewModel extends ChangeNotifier {
     notifyListeners();
   }
 
+  PacketPaddingMode get packetPaddingMode => PacketPaddingMode.fromWireValue(
+      profileExtraFields['packet_padding_mode']);
+
+  void setPacketPaddingMode(PacketPaddingMode mode) {
+    profileExtraFields = {
+      ...profileExtraFields,
+      'packet_padding_mode': mode.wireValue,
+    };
+    notifyListeners();
+  }
+
   void setPacketPaddingMaxFromText(String value) {
     final parsed = int.tryParse(value.trim());
     if (parsed == null) {
@@ -443,6 +472,7 @@ class HomeViewModel extends ChangeNotifier {
       return;
     }
 
+    _hasRoutingPreferences = true;
     statusMessage = addedApps.length == 1
         ? t('message.added_split_app', {
             'app': _displayAppPath(addedApps.single),
@@ -455,6 +485,7 @@ class HomeViewModel extends ChangeNotifier {
   }
 
   void removeSplitTunnelApp(String appPath) {
+    _hasRoutingPreferences = true;
     windowsApps = [
       for (final app in windowsApps)
         if (app != appPath) app,
@@ -548,11 +579,13 @@ class HomeViewModel extends ChangeNotifier {
   String transportModeLabel(TransportMode mode) {
     return switch (mode) {
       TransportMode.auto => t('label.transport_auto'),
+      TransportMode.autoLowCpu => t('label.transport_auto_lowcpu'),
       TransportMode.tcp => t('label.transport_tcp'),
       TransportMode.utp => t('label.transport_utp'),
       TransportMode.ws => t('label.transport_ws'),
       TransportMode.https => t('label.transport_https'),
       TransportMode.rawUdp => t('label.transport_raw_udp'),
+      TransportMode.rawUdpV2 => t('label.transport_raw_udp_v2'),
     };
   }
 
@@ -607,6 +640,13 @@ class HomeViewModel extends ChangeNotifier {
   }
 
   bool get engineReady => missingRuntimeFiles.isEmpty;
+
+  String? get coreVersion {
+    if (runtimeStatus.coreVersion.isNotEmpty) {
+      return runtimeStatus.coreVersion;
+    }
+    return installedCoreVersion;
+  }
 
   bool get hasBadAppScanResult => badAppFindings != null;
 
@@ -807,6 +847,12 @@ class HomeViewModel extends ChangeNotifier {
     networkRescueExtraFields = profile.networkRescue.extraFields;
     splitTunnelExtraFields = profile.splitTunnelExtraFields;
     splitTunnelMode = profile.splitTunnelMode;
+    // An existing profile also owns an intentionally empty/full-tunnel policy.
+    _hasRoutingPreferences = configurationReady(profile) ||
+        splitTunnelMode != SplitTunnelMode.disabled ||
+        windowsApps.isNotEmpty ||
+        profileAndroidApps.isNotEmpty ||
+        splitTunnelExtraFields.isNotEmpty;
   }
 
   void _applyLaunchResult(LaunchResult result) {
@@ -864,17 +910,20 @@ class HomeViewModel extends ChangeNotifier {
   List<ServerTarget> _normalizeServerPriorities(
     List<ServerTarget> servers,
   ) {
-    final sorted = [...servers]..sort((left, right) {
-        final priorityCompare = left.priority.compareTo(right.priority);
+    final sorted = servers.asMap().entries.toList()
+      ..sort((left, right) {
+        final priorityCompare =
+            left.value.priority.compareTo(right.value.priority);
         if (priorityCompare != 0) {
           return priorityCompare;
         }
-        return left.id.compareTo(right.id);
+        // Equal priorities use the operator's array order, as in the core.
+        return left.key.compareTo(right.key);
       });
 
     return [
       for (var index = 0; index < sorted.length; index += 1)
-        sorted[index].copyWith(priority: index + 1),
+        sorted[index].value.copyWith(priority: index + 1),
     ];
   }
 

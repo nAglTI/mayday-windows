@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../../../app/mayday_theme.dart';
 import '../../../../core/l10n/app_texts.dart';
 import '../../../../core/models/network_rescue_config.dart';
+import '../../../../core/models/packet_padding_mode.dart';
 import '../../../../core/models/relay_target.dart';
 import '../../../../core/models/transport_config.dart';
 import '../home_view_model.dart';
@@ -90,6 +91,11 @@ class SettingsView extends StatelessWidget {
                     label: textCatalog.t('label.transport_auto'),
                   ),
                   Segment(
+                    value: TransportMode.autoLowCpu,
+                    label:
+                        viewModel.transportModeLabel(TransportMode.autoLowCpu),
+                  ),
+                  Segment(
                     value: TransportMode.tcp,
                     label: textCatalog.t('label.transport_tcp'),
                   ),
@@ -105,9 +111,14 @@ class SettingsView extends StatelessWidget {
                     value: TransportMode.https,
                     label: textCatalog.t('label.transport_https'),
                   ),
+                  if (viewModel.transportMode == TransportMode.rawUdp)
+                    Segment(
+                      value: TransportMode.rawUdp,
+                      label: textCatalog.t('label.transport_raw_udp'),
+                    ),
                   Segment(
-                    value: TransportMode.rawUdp,
-                    label: textCatalog.t('label.transport_raw_udp'),
+                    value: TransportMode.rawUdpV2,
+                    label: viewModel.transportModeLabel(TransportMode.rawUdpV2),
                   ),
                 ],
                 onChanged: viewModel.isBusy ? null : viewModel.setTransportMode,
@@ -185,6 +196,16 @@ class SettingsView extends StatelessWidget {
                 accent: viewModel.engineReady
                     ? MaydayColors.accent
                     : MaydayColors.danger,
+              ),
+              const Hairline(),
+              StatRow(
+                label: textCatalog.t(
+                  viewModel.runtimeStatus.coreVersion.isNotEmpty
+                      ? 'label.running_core_version'
+                      : 'label.installed_core_version',
+                ),
+                value: viewModel.coreVersion ??
+                    textCatalog.t('status.core_version_unknown'),
               ),
               const Hairline(),
               StatRow(
@@ -275,8 +296,10 @@ class RuntimeOptionsPanel extends StatelessWidget {
           contentPadding: EdgeInsets.zero,
           secondary: const Icon(Icons.speed_outlined),
           title: Text(textCatalog.t('label.steady_quick_probe')),
+          subtitle:
+              Text(textCatalog.t('label.steady_quick_probe_compatibility')),
           value: viewModel.steadyStateQuickProbeEnabled,
-          onChanged: enabled ? viewModel.setSteadyStateQuickProbeEnabled : null,
+          onChanged: null,
         ),
         const Hairline(),
         SwitchListTile(
@@ -321,17 +344,39 @@ class RuntimeOptionsPanel extends StatelessWidget {
           onPresetChanged: viewModel.setPacketFragmentPayloadBytes,
         ),
         const SizedBox(height: 14),
-        PacketPaddingField(
-          textCatalog: textCatalog,
-          enabled: enabled,
-          minController: viewModel.packetPaddingMinController,
-          maxController: viewModel.packetPaddingMaxController,
-          minBytes: viewModel.packetPaddingMinBytes,
-          maxBytes: viewModel.packetPaddingMaxBytes,
-          onMinTextChanged: viewModel.setPacketPaddingMinFromText,
-          onMaxTextChanged: viewModel.setPacketPaddingMaxFromText,
-          onPresetChanged: viewModel.setPacketPaddingRange,
+        DropdownField<PacketPaddingMode>(
+          label: textCatalog.t('label.packet_padding'),
+          selected: viewModel.packetPaddingMode,
+          options: [
+            for (final mode in PacketPaddingMode.values)
+              Segment(
+                value: mode,
+                label: textCatalog.t('label.packet_padding_${mode.name}'),
+              ),
+          ],
+          onChanged: enabled ? viewModel.setPacketPaddingMode : null,
         ),
+        const SizedBox(height: 6),
+        Text(
+          textCatalog.t('label.packet_padding_mode_helper'),
+          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: MaydayColors.muted,
+              ),
+        ),
+        if (viewModel.packetPaddingMode == PacketPaddingMode.custom) ...[
+          const SizedBox(height: 14),
+          PacketPaddingField(
+            textCatalog: textCatalog,
+            enabled: enabled,
+            minController: viewModel.packetPaddingMinController,
+            maxController: viewModel.packetPaddingMaxController,
+            minBytes: viewModel.packetPaddingMinBytes,
+            maxBytes: viewModel.packetPaddingMaxBytes,
+            onMinTextChanged: viewModel.setPacketPaddingMinFromText,
+            onMaxTextChanged: viewModel.setPacketPaddingMaxFromText,
+            onPresetChanged: viewModel.setPacketPaddingRange,
+          ),
+        ],
         const SizedBox(height: 10),
         SwitchListTile(
           contentPadding: EdgeInsets.zero,

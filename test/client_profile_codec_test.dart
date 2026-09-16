@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mayday_windows/core/models/network_rescue_config.dart';
+import 'package:mayday_windows/core/models/split_tunnel_mode.dart';
 import 'package:mayday_windows/core/models/transport_config.dart';
 import 'package:path/path.dart' as p;
 import 'package:mayday_windows/core/l10n/app_texts.dart';
@@ -32,6 +33,215 @@ metrics:
   file_enabled: false
   file_dir: ''
 ''';
+
+  Map<String, Object?> releaseProfile() => {
+        'config_version': 1,
+        'user_id': 1,
+        'transport': {
+          'mode': 'ws',
+          'tls': {'client_hello': 'chrome'},
+        },
+        'packet_padding_mode': 'minimal',
+        'discovery_relays': [
+          {
+            'id': 'relay-main',
+            'addr': 'relay.example.net',
+            'relay_key': userKey,
+            'transport_ports': {
+              'bt-tcp': [51824],
+              'bt-utp': [51821],
+              'ws': [443],
+              'https-rest': [443],
+              'raw-udp': [51825],
+              'raw-udp-v2': [51826],
+            },
+            'endpoint_addrs': ['relay.example.net'],
+          },
+        ],
+        'servers': [
+          {'id': 'exit-main', 'key': userKey, 'priority': 1},
+        ],
+      };
+
+  test('imports optional and null split rules from 2.1.0 profiles', () {
+    const codec = ClientProfileCodec();
+    for (final splitFields in <Map<String, Object?>>[
+      {},
+      {'split_tunnel': null},
+      {
+        'split_tunnel': {'enabled': false},
+      },
+    ]) {
+      final profile = codec.parseCurrentContractRaw(
+        jsonEncode({...releaseProfile(), ...splitFields}),
+      );
+      expect(profile.splitTunnelMode, SplitTunnelMode.disabled);
+      final roundTrip =
+          codec.parseCurrentContractRaw(codec.encodeYaml(profile));
+      expect(roundTrip.extraFields['packet_padding_mode'], 'minimal');
+      expect(
+          roundTrip.transport.extraFields['tls'], {'client_hello': 'chrome'});
+      expect(roundTrip.relays.single.extraFields['endpoint_addrs'],
+          ['relay.example.net']);
+    }
+  });
+
+  test('Windows split rules do not require an Android app list', () {
+    const codec = ClientProfileCodec();
+    final raw = {
+      ...releaseProfile(),
+      'split_tunnel': {
+        'enabled': true,
+        'apps_mode': 'blacklist',
+        'apps_win': ['C:/Apps/App.exe'],
+      },
+    };
+    final profile = codec.parseCurrentContractRaw(jsonEncode(raw));
+    expect(profile.splitTunnelMode, SplitTunnelMode.excludeSelected);
+    expect(profile.windowsApps, ['C:/Apps/App.exe']);
+    expect(profile.androidApps, isEmpty);
+  });
+
+  test('preserves 2.1.0 transport modes and automatic MTU', () {
+    const codec = ClientProfileCodec();
+    for (final mode in [TransportMode.autoLowCpu, TransportMode.rawUdpV2]) {
+      final raw = {
+        ...releaseProfile(),
+        'transport': {'mode': mode.wireValue},
+        'tunnel_mtu': 0,
+      };
+      final profile = codec.parseCurrentContractRaw(jsonEncode(raw));
+      final roundTrip =
+          codec.parseCurrentContractRaw(codec.encodeYaml(profile));
+      expect(roundTrip.transport.mode, mode);
+      expect(roundTrip.tunnelMtu, 0);
+    }
+  });
+
+  test('rejects removed raw UDP aliases for new imports and runtime export',
+      () {
+    const codec = ClientProfileCodec();
+    for (final mode in ['udp', 'rawudp', 'udp-raw', 'raw-udp']) {
+      final raw = jsonEncode({
+        ...releaseProfile(),
+        'transport': {'mode': mode},
+      });
+      expect(TransportMode.supportsWireValue(mode), isFalse);
+      expect(() => codec.parseCurrentContractRaw(raw),
+          throwsA(isA<LegacyRawUdpProfileException>()));
+      final saved = codec.parseRaw(raw);
+      expect(saved.transport.mode, TransportMode.rawUdp);
+      expect(codec.parseRaw(codec.encodeYaml(saved)).transport.mode,
+          TransportMode.rawUdp);
+      expect(() => codec.encodeRuntimeYaml(saved),
+          throwsA(isA<LegacyRawUdpProfileException>()));
+    }
+  });
+
+  test('auto preserves legacy ports without converting them to raw UDP v2', () {
+    const codec = ClientProfileCodec();
+    final raw = releaseProfile();
+    raw['transport'] = {'mode': 'auto'};
+    final relays = raw['discovery_relays'] as List;
+    (relays.single as Map)['transport_ports'] = {
+      'bt-tcp': [51824],
+      'bt-utp': [51821],
+      'ws': [443],
+      'https-rest': [443],
+      'raw-udp': [51825],
+    };
+    final profile = codec.parseCurrentContractRaw(jsonEncode(raw));
+    final exported =
+        codec.parseCurrentContractRaw(codec.encodeRuntimeYaml(profile));
+    expect(exported.relays.single.transportPorts['raw-udp'], [51825]);
+    expect(exported.relays.single.transportPorts.containsKey('raw-udp-v2'),
+        isFalse);
+
+    final changed = profile.copyWith(
+      transport: profile.transport.copyWith(mode: TransportMode.rawUdpV2),
+    );
+    expect(() => codec.encodeRuntimeYaml(changed),
+        throwsA(isA<FormatException>()));
+    raw['transport'] = {'mode': 'raw-udp-v2'};
+    expect(() => codec.parseCurrentContractRaw(jsonEncode(raw)),
+        throwsA(isA<FormatException>()));
+  });
+
+  test('legacy raw recovery never bypasses newer schema or missing relay keys',
+      () {
+    const codec = ClientProfileCodec();
+    final raw = releaseProfile();
+    raw['transport'] = {'mode': 'raw-udp'};
+    raw['config_version'] = 2;
+    expect(
+        () => codec.parseCurrentContractRaw(jsonEncode(raw)),
+        throwsA(isA<ClientProfileContractException>().having(
+            (error) => error is LegacyRawUdpProfileException,
+            'recoverable',
+            isFalse)));
+    raw['config_version'] = 1;
+    final relays = raw['discovery_relays'] as List;
+    (relays.single as Map).remove('relay_key');
+    expect(
+        () => codec.parseCurrentContractRaw(jsonEncode(raw)),
+        throwsA(isA<ClientProfileContractException>().having(
+            (error) => error is LegacyRawUdpProfileException,
+            'recoverable',
+            isFalse)));
+  });
+
+  test('disabling rescue clears imported adaptive pacing', () {
+    const codec = ClientProfileCodec();
+    final profile = codec.parseCurrentContractRaw(jsonEncode({
+      ...releaseProfile(),
+      'network_rescue': {
+        'enabled': true,
+        'profile': 'off',
+        'adaptive_pacing': true,
+        'future_rescue': 'kept',
+      },
+    }));
+    expect(profile.networkRescue.profile, NetworkRescueProfile.stable);
+    final enabled = codec.parseRaw(codec.encodeRuntimeYaml(profile));
+    expect(enabled.networkRescue.extraFields['adaptive_pacing'], isTrue);
+
+    final disabled = profile.copyWith(
+      networkRescue: profile.networkRescue.copyWith(
+        profile: NetworkRescueProfile.off,
+      ),
+    );
+    final roundTrip = codec.parseRaw(codec.encodeRuntimeYaml(disabled));
+    expect(roundTrip.networkRescue.enabled, isFalse);
+    expect(roundTrip.networkRescue.extraFields['adaptive_pacing'], isFalse);
+    expect(roundTrip.networkRescue.extraFields['future_rescue'], 'kept');
+  });
+
+  test('runtime config excludes UI metrics while saved profile retains them',
+      () async {
+    final tempDir = await Directory.systemTemp.createTemp('mayday-profile-');
+    addTearDown(() => tempDir.delete(recursive: true));
+    const codec = ClientProfileCodec();
+    final profile = codec.parseCurrentContractRaw(jsonEncode({
+      ...releaseProfile(),
+      'metrics': {'enabled': true},
+    }));
+    final storage = ClientProfileStorage(
+      runtimePathsService: _FakeRuntimePathsService(tempDir.path),
+      codec: codec,
+      diagnosticsLogger: const RuntimeDiagnosticsLogger(enabled: false),
+      encryptionService: const _FakeProfileEncryptionService(),
+    );
+
+    await storage.saveProfile(profile);
+    final runtimeFile = await storage.writeRuntimeConfig(profile);
+    final runtimeConfig = await runtimeFile.readAsString();
+    final saved = await storage.loadSavedProfileForCurrentContract();
+
+    expect(runtimeConfig, isNot(contains('metrics:')));
+    expect(runtimeConfig, contains("packet_padding_mode: 'minimal'"));
+    expect(runtimeConfig, contains("client_hello: 'chrome'"));
+    expect(saved?.metrics.enabled, isTrue);
+  });
 
   test('imports current config and exports minimal discovery config', () {
     const raw = '''
@@ -346,7 +556,7 @@ split_tunnel:
     expect(encoded, contains('https-rest: [443]'));
   });
 
-  test('imports and exports raw udp transport and rescue profile', () {
+  test('reads saved raw udp transport and rescue profile for migration', () {
     const raw = '''
 user_id: 1
 server_failback_delay_sec: 60
@@ -385,7 +595,7 @@ split_tunnel:
 ''';
 
     const codec = ClientProfileCodec();
-    final profile = codec.parseCurrentContractRaw(raw);
+    final profile = codec.parseRaw(raw);
     final encoded = codec.encodeYaml(profile);
 
     expect(profile.transport.mode, TransportMode.rawUdp);
