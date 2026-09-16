@@ -1,4 +1,4 @@
-# Mayday for Windows 2.1.6
+# Mayday for Windows 2.1.5
 
 ## What's New
 
@@ -18,7 +18,7 @@
 
 ---
 
-# Mayday для Windows 2.1.6
+# Mayday для Windows 2.1.5
 
 ## Что нового
 
