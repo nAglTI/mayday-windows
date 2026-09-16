@@ -29,6 +29,7 @@ class BootstrapState {
     this.badAppScanResult,
     this.savedProfileWarning,
     this.autoStartError,
+    this.installedCoreVersion,
   });
 
   final ClientProfile profile;
@@ -38,6 +39,7 @@ class BootstrapState {
   final BadAppScanResult? badAppScanResult;
   final String? savedProfileWarning;
   final String? autoStartError;
+  final String? installedCoreVersion;
 }
 
 class ImportedProfile {
@@ -99,6 +101,8 @@ class ClientController {
     final paths = await _runtimePathsService.getPaths();
     final missingRuntimeFiles =
         await _runtimePathsService.validateRuntime(paths);
+    final installedCoreVersion =
+        await _runtimePathsService.getCoreVersion(paths);
     final savedProfile = await _loadSavedProfileForBootstrap();
     final badAppScanResult = await _badAppScanResultStorage.load();
     final autoStartEnabled = await _appSettings.loadAutoStartEnabled();
@@ -117,6 +121,7 @@ class ClientController {
       badAppScanResult: badAppScanResult,
       savedProfileWarning: savedProfile.warning,
       autoStartError: autoStartError,
+      installedCoreVersion: installedCoreVersion,
     );
   }
 
@@ -205,6 +210,13 @@ class ClientController {
       final profile = await _storage.loadSavedProfileForCurrentContract();
       return _SavedProfileBootstrapResult(
         profile: profile ?? const ClientProfile(),
+      );
+    } on LegacyRawUdpProfileException catch (error) {
+      // Reuse the validated snapshot; a second disk read could see a different
+      // profile without the contract/metadata checks that allowed recovery.
+      return _SavedProfileBootstrapResult(
+        profile: error.profile,
+        warning: error.message,
       );
     } on ClientProfileContractException {
       return _SavedProfileBootstrapResult(

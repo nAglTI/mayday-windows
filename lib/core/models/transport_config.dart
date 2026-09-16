@@ -1,27 +1,34 @@
 enum TransportMode {
   auto,
+  autoLowCpu,
   tcp,
   utp,
   ws,
   https,
-  rawUdp;
+  // Retained only to recover saved profiles; core 2.1.2 removed this carrier.
+  rawUdp,
+  rawUdpV2;
 
   String get wireValue => switch (this) {
         TransportMode.auto => 'auto',
+        TransportMode.autoLowCpu => 'auto-lowcpu',
         TransportMode.tcp => 'tcp',
         TransportMode.utp => 'utp',
         TransportMode.ws => 'ws',
         TransportMode.https => 'https',
         TransportMode.rawUdp => 'udp',
+        TransportMode.rawUdpV2 => 'raw-udp-v2',
       };
 
   static TransportMode fromWireValue(String? raw) {
     return switch (raw?.trim().toLowerCase()) {
+      'auto-lowcpu' => TransportMode.autoLowCpu,
       'tcp' || 'bt-tcp' => TransportMode.tcp,
       'utp' || 'bt-utp' => TransportMode.utp,
       'ws' => TransportMode.ws,
       'https' || 'rest' || 'https-rest' => TransportMode.https,
-      'udp' || 'rawudp' || 'raw-udp' => TransportMode.rawUdp,
+      'udp' || 'rawudp' || 'udp-raw' || 'raw-udp' => TransportMode.rawUdp,
+      'raw-udp-v2' => TransportMode.rawUdpV2,
       _ => TransportMode.auto,
     };
   }
@@ -33,6 +40,7 @@ enum TransportMode {
     }
     return switch (value) {
       'auto' ||
+      'auto-lowcpu' ||
       'tcp' ||
       'bt-tcp' ||
       'utp' ||
@@ -41,9 +49,7 @@ enum TransportMode {
       'https' ||
       'rest' ||
       'https-rest' ||
-      'udp' ||
-      'rawudp' ||
-      'raw-udp' =>
+      'raw-udp-v2' =>
         true,
       _ => false,
     };

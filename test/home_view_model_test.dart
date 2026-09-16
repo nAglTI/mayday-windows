@@ -7,6 +7,7 @@ import 'package:path/path.dart' as p;
 import 'package:mayday_windows/core/l10n/app_texts.dart';
 import 'package:mayday_windows/core/models/bad_app_finding.dart';
 import 'package:mayday_windows/core/models/network_rescue_config.dart';
+import 'package:mayday_windows/core/models/packet_padding_mode.dart';
 import 'package:mayday_windows/core/models/runtime_paths.dart';
 import 'package:mayday_windows/core/models/runtime_status_snapshot.dart';
 import 'package:mayday_windows/core/services/app_autostart_service.dart';
@@ -93,6 +94,44 @@ void main() {
     expect(viewModel.badAppFindings, isEmpty);
     expect(viewModel.isBadAppPreflightPassed, isTrue);
     expect(scanner.scanCount, 1);
+  });
+
+  test('shows installed core until running status supplies its own version',
+      () async {
+    final tempDir = await Directory.systemTemp.createTemp('mayday-home-vm-');
+    addTearDown(() => tempDir.delete(recursive: true));
+    final launcher = _FakeRuntimeLauncher();
+    addTearDown(launcher.dispose);
+    final viewModel = _createViewModel(
+      root: tempDir.path,
+      scanner: _FakeBadAppScannerService(findings: const []),
+      launcher: launcher,
+      installedCoreVersion: '2.1.2',
+    );
+    addTearDown(viewModel.dispose);
+
+    expect(viewModel.coreVersion, isNull);
+    await viewModel.bootstrap();
+    expect(viewModel.coreVersion, '2.1.2');
+
+    launcher.emitRunning(true);
+    await _waitUntil(() => viewModel.isRuntimeStarted);
+    expect(viewModel.coreVersion, '2.1.2');
+
+    launcher.emitStatus(const RuntimeStatusSnapshot(coreVersion: '2.1.3'));
+    await _waitUntil(() => viewModel.runtimeStatus.coreVersion.isNotEmpty);
+    expect(viewModel.coreVersion, '2.1.3');
+
+    launcher.emitStatus(RuntimeStatusSnapshot.tryParse(
+      '2026-09-16T09:31:20+03:00 state=vpn_inactive vpn=inactive '
+      'relay=- transport=- exit=- probed=0 best=-',
+    )!);
+    await _waitUntil(() => viewModel.runtimeStatus.coreVersion.isEmpty);
+    expect(viewModel.coreVersion, '2.1.2');
+
+    launcher.emitRunning(false);
+    await _waitUntil(() => !viewModel.isRuntimeStarted);
+    expect(viewModel.coreVersion, '2.1.2');
   });
 
   test('runtime status updates active transport and exit analytics', () async {
@@ -333,6 +372,7 @@ tunnel_mtu: 100
 packet_fragment_payload_bytes: 100
 packet_padding_min_bytes: 24
 packet_padding_max_bytes: 256
+packet_padding_mode: extreme
 disable_packet_batching: true
 metrics:
   enabled: true
@@ -373,11 +413,15 @@ split_tunnel:
     expect(viewModel.packetFragmentPayloadController.text, '100');
     expect(viewModel.packetPaddingMinController.text, '24');
     expect(viewModel.packetPaddingMaxController.text, '256');
+    expect(viewModel.packetPaddingMode, PacketPaddingMode.extreme);
+    expect(viewModel.collectProfile().extraFields['packet_padding_mode'],
+        'extreme');
     expect(viewModel.disablePacketBatching, isTrue);
     expect(viewModel.metricsEnabled, isFalse);
 
     viewModel.setPacketFragmentPayloadBytes(512);
     viewModel.setPacketPaddingRange(0, 128);
+    viewModel.setPacketPaddingMode(PacketPaddingMode.minimal);
     viewModel.setNetworkRescueProfile(NetworkRescueProfile.extreme);
     viewModel.setMetricsEnabled(true);
     viewModel.tunnelMtuController.text = '1500';
@@ -389,10 +433,19 @@ split_tunnel:
     expect(profile.packetFragmentPayloadBytes, 512);
     expect(profile.packetPaddingMinBytes, 0);
     expect(profile.packetPaddingMaxBytes, 128);
+    expect(profile.extraFields['packet_padding_mode'], 'minimal');
     expect(profile.disablePacketBatching, isTrue);
     expect(profile.metrics.enabled, isTrue);
     expect(profile.metrics.fileEnabled, isFalse);
     expect(profile.metrics.fileDir, isEmpty);
+
+    viewModel.setPacketPaddingMode(PacketPaddingMode.off);
+    expect(
+        viewModel.collectProfile().extraFields['packet_padding_mode'], 'off');
+    expect(viewModel.collectProfile().packetPaddingMaxBytes, 128);
+    viewModel.setPacketPaddingMode(PacketPaddingMode.custom);
+    expect(viewModel.collectProfile().extraFields['packet_padding_mode'], '');
+    expect(viewModel.collectProfile().packetPaddingMaxBytes, 128);
   });
 }
 
@@ -401,8 +454,12 @@ HomeViewModel _createViewModel({
   required BadAppScannerService scanner,
   required RuntimeLauncher launcher,
   AppUpdateService? updateService,
+  String? installedCoreVersion,
 }) {
-  final runtimePathsService = _FakeRuntimePathsService(root);
+  final runtimePathsService = _FakeRuntimePathsService(
+    root,
+    coreVersion: installedCoreVersion,
+  );
   final textCatalog = const AppTextCatalog(AppLanguage.english);
   final controller = ClientController(
     runtimePathsService: runtimePathsService,
@@ -512,6 +569,10 @@ class _FakeRuntimeLauncher extends RuntimeLauncher {
     _runtimeStatusChanges.add(snapshot);
   }
 
+  void emitRunning(bool running) {
+    _runningChanges.add(running);
+  }
+
   void dispose() {
     _runningChanges.close();
     _runtimeStatusChanges.close();
@@ -526,9 +587,13 @@ class _FakeTrayIconService extends TrayIconService {
 }
 
 class _FakeRuntimePathsService extends RuntimePathsService {
-  const _FakeRuntimePathsService(this.root);
+  const _FakeRuntimePathsService(this.root, {this.coreVersion});
 
   final String root;
+  final String? coreVersion;
+
+  @override
+  Future<String?> getCoreVersion(RuntimePaths paths) async => coreVersion;
 
   @override
   Future<RuntimePaths> getPaths() async {

@@ -2,6 +2,58 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mayday_windows/core/models/runtime_status_snapshot.dart';
 
 void main() {
+  test('reads the core version from root status JSON', () {
+    final snapshot = RuntimeStatusSnapshot.tryParse(
+      '{"core_version":"2.1.2","state":"vpn_inactive"}',
+    );
+
+    expect(snapshot!.coreVersion, '2.1.2');
+    expect(snapshot.coreState, 'vpn_inactive');
+  });
+
+  test('unwraps desktop status without losing telemetry', () {
+    final snapshot = RuntimeStatusSnapshot.tryParse('''
+{"ok":true,"status":{"core_version":"2.1.2","state":"vpn_connected","vpn_state":"active","active_transport":"https-rest","upload_bps":1200000}}
+''');
+
+    expect(snapshot!.coreVersion, '2.1.2');
+    expect(snapshot.coreState, 'vpn_connected');
+    expect(snapshot.vpnState, 'active');
+    expect(snapshot.activeTransportId, 'https-rest');
+    expect(snapshot.uploadBps, 1200000);
+  });
+
+  test('reads the core version from CLI status', () {
+    final snapshot = RuntimeStatusSnapshot.tryParse(
+      'core_version=2.1.2 state=vpn_inactive vpn=inactive',
+    );
+
+    expect(snapshot!.coreVersion, '2.1.2');
+    expect(snapshot.vpnState, 'inactive');
+  });
+
+  test('keeps the version unknown for old or malformed status', () {
+    for (final raw in [
+      '{"state":"vpn_inactive"}',
+      '{"ok":true,"status":{"state":"vpn_inactive"}}',
+      '{"core_version":212,"state":"vpn_inactive"}',
+      'state=vpn_inactive vpn=inactive',
+    ]) {
+      expect(RuntimeStatusSnapshot.tryParse(raw)!.coreVersion, isEmpty);
+    }
+    expect(RuntimeStatusSnapshot.empty.coreVersion, isEmpty);
+  });
+
+  test('recognizes a status containing only core version', () {
+    final snapshot = RuntimeStatusSnapshot.tryParse(
+      '{"core_version":"2.1.2"}',
+    );
+
+    expect(snapshot!.hasData, isTrue);
+    expect(snapshot.hasActiveRoute, isFalse);
+    expect(snapshot.hasRates, isFalse);
+  });
+
   test('parses active route and telemetry from runtime status JSON', () {
     final snapshot = RuntimeStatusSnapshot.tryParse('''
 {

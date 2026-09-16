@@ -160,7 +160,7 @@ class ClientProfileStorage {
   Future<File> writeRuntimeConfig(ClientProfile profile) async {
     final paths = await _runtimePathsService.getPaths();
     await _runtimePathsService.ensureMutableDirectories(paths);
-    final encoded = _codec.encodeYaml(profile);
+    final encoded = _codec.encodeRuntimeYaml(profile);
     final file = File(_runtimeConfigPath(paths));
     return file.writeAsString(encoded, flush: true);
   }

@@ -53,6 +53,9 @@ class _FakeRuntimePathsService implements RuntimePathsService {
   final String root;
 
   @override
+  Future<String?> getCoreVersion(RuntimePaths paths) async => null;
+
+  @override
   Future<RuntimePaths> getPaths() async {
     final configDir = p.join(root, 'config');
     return RuntimePaths(

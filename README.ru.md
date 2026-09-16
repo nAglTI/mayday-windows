@@ -50,7 +50,7 @@ Mayday проверяет установленные приложения, exe-�
 
 ## Заметки к версии
 
-Актуальные заметки к версии Windows находятся в [docs/release-notes-2.1.1.md](docs/release-notes-2.1.1.md).
+Актуальные заметки к версии Windows находятся в [docs/release-notes-2.1.5.md](docs/release-notes-2.1.5.md).
 
 ## Flutter-Слой
 

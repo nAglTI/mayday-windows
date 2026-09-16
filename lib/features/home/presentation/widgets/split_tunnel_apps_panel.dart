@@ -51,6 +51,15 @@ class SplitTunnelAppsPanel extends StatelessWidget {
           ],
           onChanged: onModeChanged,
         ),
+        if (mode != SplitTunnelMode.disabled) ...[
+          const SizedBox(height: 8),
+          Text(
+            textCatalog.t('label.split_direct_ipv6'),
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: MaydayColors.muted,
+                ),
+          ),
+        ],
         const SizedBox(height: 14),
         Row(
           children: [

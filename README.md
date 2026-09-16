@@ -48,7 +48,7 @@ Most users should only need the import controls, the main connect button, and th
 
 ## Release Notes
 
-See [docs/release-notes-2.1.1.md](docs/release-notes-2.1.1.md) for the current Windows release notes.
+See [docs/release-notes-2.1.5.md](docs/release-notes-2.1.5.md) for the current Windows release notes.
 
 ## Flutter Layer
 

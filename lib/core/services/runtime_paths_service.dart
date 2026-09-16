@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:path/path.dart' as p;
@@ -25,9 +26,17 @@ class RuntimePathsService {
     RuntimePlatform? platform,
     Map<String, String>? environment,
     String? resolvedExecutable,
+    Future<Process> Function(
+      String executable,
+      List<String> arguments, {
+      String? workingDirectory,
+    })? versionProcessStarter,
+    Duration versionTimeout = const Duration(seconds: 2),
   })  : _platform = platform,
         _environment = environment,
-        _resolvedExecutable = resolvedExecutable;
+        _resolvedExecutable = resolvedExecutable,
+        _versionProcessStarter = versionProcessStarter,
+        _versionTimeout = versionTimeout;
 
   static const String _buildVariant = String.fromEnvironment(
     'MAYDAY_BUILD_VARIANT',
@@ -37,6 +46,46 @@ class RuntimePathsService {
   final RuntimePlatform? _platform;
   final Map<String, String>? _environment;
   final String? _resolvedExecutable;
+  final Future<Process> Function(
+    String executable,
+    List<String> arguments, {
+    String? workingDirectory,
+  })? _versionProcessStarter;
+  final Duration _versionTimeout;
+
+  Future<String?> getCoreVersion(RuntimePaths paths) async {
+    Process? process;
+    try {
+      if (!await File(paths.clientExePath).exists()) {
+        return null;
+      }
+      process = await (_versionProcessStarter ?? Process.start)(
+        paths.clientExePath,
+        const ['-version'],
+        workingDirectory: paths.runtimeDir,
+      );
+      final results = await Future.wait<Object?>([
+        process.exitCode,
+        process.stdout.transform(utf8.decoder).join(),
+        process.stderr.drain<void>(),
+      ]).timeout(_versionTimeout);
+      if (results.first != 0) {
+        return null;
+      }
+      final version = (results[1]! as String).trim();
+      return version.length <= 128 && _coreVersionPattern.hasMatch(version)
+          ? version
+          : null;
+    } catch (_) {
+      process?.kill();
+      return null;
+    }
+  }
+
+  static final _coreVersionPattern = RegExp(
+    r'^\d+\.\d+\.\d+(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?'
+    r'(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$',
+  );
 
   Future<RuntimePaths> getPaths() async {
     final platform = _platform ?? RuntimePlatform.current();

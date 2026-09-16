@@ -2,6 +2,7 @@ import 'dart:convert';
 
 class RuntimeStatusSnapshot {
   const RuntimeStatusSnapshot({
+    this.coreVersion = '',
     this.coreState = '',
     this.vpnState = '',
     this.activeRelayId = '',
@@ -16,6 +17,7 @@ class RuntimeStatusSnapshot {
 
   static const empty = RuntimeStatusSnapshot();
 
+  final String coreVersion;
   final String coreState;
   final String vpnState;
   final String activeRelayId;
@@ -35,6 +37,7 @@ class RuntimeStatusSnapshot {
   bool get hasRates => uploadBps > 0 || downloadBps > 0 || aggregateBps > 0;
 
   bool get hasData =>
+      coreVersion.isNotEmpty ||
       coreState.isNotEmpty ||
       vpnState.isNotEmpty ||
       hasActiveRoute ||
@@ -60,6 +63,10 @@ class RuntimeStatusSnapshot {
   }
 
   static RuntimeStatusSnapshot fromJson(Map<String, Object?> json) {
+    final status = json['status'];
+    if (status is Map<String, Object?>) {
+      json = status;
+    }
     final protocols = _listOfMaps(json['protocols']);
     final endpoints = _listOfMaps(json['endpoints']);
     final activeTransportId = _firstString(json, const [
@@ -92,6 +99,9 @@ class RuntimeStatusSnapshot {
           ].reduce(_maxDouble);
 
     return RuntimeStatusSnapshot(
+      coreVersion: json['core_version'] is String
+          ? (json['core_version']! as String).trim()
+          : '',
       coreState: _stringValue(json['state']),
       vpnState: _firstString(json, const ['vpn_state', 'vpn']),
       activeRelayId: _firstString(json, const [

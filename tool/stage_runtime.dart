@@ -47,8 +47,34 @@ Future<void> main(List<String> args) async {
     );
   }
 
+  final reservedNames = <String>{
+    for (final runtimeFile in spec.runtimeFiles)
+      for (final sourceName in runtimeFile.sourceNames)
+        sourceName.toLowerCase(),
+    for (final alias in spec.staleAliases) alias.toLowerCase(),
+  };
+  await for (final entity
+      in sourceDir.list(recursive: true, followLinks: false)) {
+    if (entity is! File) {
+      continue;
+    }
+
+    final relativePath = p.relative(entity.path, from: sourceDir.path);
+    if (p.dirname(relativePath) == '.' &&
+        reservedNames.contains(p.basename(relativePath).toLowerCase())) {
+      continue;
+    }
+
+    stagedFiles.add(
+      _ResolvedRuntimeStageFile(
+        sourceFile: entity,
+        outputName: relativePath,
+      ),
+    );
+  }
+
   if (clean && targetDir.existsSync()) {
-    await _removeStaleFiles(spec, sourceDir, targetDir, stagedFiles);
+    await _removeStaleFiles(targetDir, stagedFiles);
   }
 
   await targetDir.create(recursive: true);
@@ -60,52 +86,18 @@ Future<void> main(List<String> args) async {
     }
   }
 
-  final reservedNames = <String>{
-    for (final runtimeFile in spec.runtimeFiles)
-      for (final sourceName in runtimeFile.sourceNames) sourceName,
-  };
-  await for (final entity in sourceDir.list(recursive: false)) {
-    if (entity is! File) {
-      continue;
-    }
-
-    final fileName = p.basename(entity.path);
-    if (reservedNames.contains(fileName)) {
-      continue;
-    }
-
-    final targetFile = File(p.join(targetDir.path, p.basename(entity.path)));
-    if (!_sameFileContent(entity, targetFile)) {
-      await targetFile.parent.create(recursive: true);
-      await entity.copy(targetFile.path);
-    }
-  }
-
   stdout.writeln('Runtime staged to: ${targetDir.path}');
 }
 
 Future<void> _removeStaleFiles(
-  RuntimeStageSpec spec,
-  Directory sourceDir,
   Directory targetDir,
   List<_ResolvedRuntimeStageFile> stagedFiles,
 ) async {
   final expectedFiles = <String>{
     for (final stagedFile in stagedFiles) stagedFile.outputName,
   };
-  await for (final entity in sourceDir.list(recursive: false)) {
-    if (entity is File) {
-      expectedFiles.add(p.basename(entity.path));
-    }
-  }
-  for (final stagedFile in stagedFiles) {
-    for (final alias in [...spec.staleAliases, stagedFile.outputName]) {
-      expectedFiles.remove(alias);
-    }
-    expectedFiles.add(stagedFile.outputName);
-  }
-
-  await for (final entity in targetDir.list(recursive: true)) {
+  await for (final entity
+      in targetDir.list(recursive: true, followLinks: false)) {
     if (entity is! File) {
       continue;
     }
@@ -194,11 +186,20 @@ class RuntimeStageSpec {
         outputName: 'wintun.dll',
         sourceNames: ['wintun.dll'],
       ),
+      RuntimeStageFile(
+        outputName: 'WinDivert.dll',
+        sourceNames: ['WinDivert.dll'],
+      ),
+      RuntimeStageFile(
+        outputName: 'WinDivert64.sys',
+        sourceNames: ['WinDivert64.sys'],
+      ),
     ],
     staleAliases: [
       'vpnclient.exe',
       'vpnpipectl.exe',
       'mdschelper.exe',
+      'mayday_vpnscan.exe',
     ],
   );
 
